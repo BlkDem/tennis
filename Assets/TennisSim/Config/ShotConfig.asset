@@ -1,0 +1,125 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 401608e98a60bcd499e39e288b356c74, type: 3}
+  m_Name: ShotConfig
+  m_EditorClassIdentifier: TennisSim.Runtime::TennisSim.ShotConfig
+  Tuning:
+    SwingLatency: 0.14
+    FollowThrough: 0.12
+    AutoSwingLateness: 0.075
+    RecoveryTime: 0.16
+    FullPreparationTime: 0.7
+    StrikeLateral: 0.85
+    StrikeForward: 0.35
+    OverheadLateral: 0.25
+    OverheadForward: 0.2
+    ReachRadius: 0.95
+    MinContactHeight: 0.15
+    MaxContactHeight: 3.1
+    IdealContactHeight: 1
+    SmashMinHeight: 2.2
+    TimingWindow: 0.2
+    TimingWeight: 0.7
+    SpacingWeight: 0.3
+    MovingPenalty: 0.25
+    PerfectScore: 0.8
+    GoodScore: 0.6
+    PerfectError:
+      LateralSigma: 0.2
+      DepthSigma: 0.3
+      ElevationSigma: 0.1
+    GoodError:
+      LateralSigma: 0.85
+      DepthSigma: 1.15
+      ElevationSigma: 0.6
+    PoorError:
+      LateralSigma: 1.5
+      DepthSigma: 2.2
+      ElevationSigma: 1.8
+    Profiles:
+    - Kind: 0
+      MinSpeed: 21
+      MaxSpeed: 33
+      Spin: 300
+      NetClearance: 0.55
+      LaunchElevation: 0
+      DefaultDepth: 8.9
+      MinDepth: 5.5
+      MaxDepth: 10.6
+      MaxAimX: 3.4
+      ErrorScale: 1
+    - Kind: 1
+      MinSpeed: 18
+      MaxSpeed: 26
+      Spin: -190
+      NetClearance: 0.3
+      LaunchElevation: 0
+      DefaultDepth: 8.3
+      MinDepth: 5
+      MaxDepth: 10.4
+      MaxAimX: 3.4
+      ErrorScale: 0.9
+    - Kind: 2
+      MinSpeed: 28
+      MaxSpeed: 42
+      Spin: 40
+      NetClearance: 0.2
+      LaunchElevation: 0
+      DefaultDepth: 9.2
+      MinDepth: 6
+      MaxDepth: 10.7
+      MaxAimX: 3.5
+      ErrorScale: 1.45
+    - Kind: 3
+      MinSpeed: 12
+      MaxSpeed: 24
+      Spin: 190
+      NetClearance: 2.2
+      LaunchElevation: 56
+      DefaultDepth: 10
+      MinDepth: 7.5
+      MaxDepth: 11
+      MaxAimX: 3.1
+      ErrorScale: 1.1
+    - Kind: 4
+      MinSpeed: 6
+      MaxSpeed: 20
+      Spin: -240
+      NetClearance: 0.25
+      LaunchElevation: 24
+      DefaultDepth: 2.6
+      MinDepth: 1.6
+      MaxDepth: 4.2
+      MaxAimX: 3
+      ErrorScale: 1.25
+    - Kind: 5
+      MinSpeed: 17
+      MaxSpeed: 28
+      Spin: -70
+      NetClearance: 0.12
+      LaunchElevation: 0
+      DefaultDepth: 8
+      MinDepth: 4
+      MaxDepth: 10.2
+      MaxAimX: 3.6
+      ErrorScale: 0.85
+    - Kind: 6
+      MinSpeed: 32
+      MaxSpeed: 46
+      Spin: 30
+      NetClearance: 0.15
+      LaunchElevation: 0
+      DefaultDepth: 8.5
+      MinDepth: 5
+      MaxDepth: 10.6
+      MaxAimX: 3.6
+      ErrorScale: 1.1

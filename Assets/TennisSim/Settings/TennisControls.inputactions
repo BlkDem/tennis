@@ -1,0 +1,78 @@
+{
+    "name": "TennisControls",
+    "maps": [
+        {
+            "name": "Player",
+            "id": "4f7a2c10-0001-4a00-9000-000000000001",
+            "actions": [
+                { "name": "Move", "type": "Value", "id": "4f7a2c10-0002-4a00-9000-000000000001", "expectedControlType": "Vector2", "processors": "", "interactions": "", "initialStateCheck": true },
+                { "name": "Aim", "type": "Value", "id": "4f7a2c10-0002-4a00-9000-000000000002", "expectedControlType": "Vector2", "processors": "", "interactions": "", "initialStateCheck": true },
+                { "name": "Sprint", "type": "Button", "id": "4f7a2c10-0002-4a00-9000-000000000003", "expectedControlType": "Button", "processors": "", "interactions": "", "initialStateCheck": false },
+                { "name": "ShotAuto", "type": "Button", "id": "4f7a2c10-0002-4a00-9000-000000000004", "expectedControlType": "Button", "processors": "", "interactions": "", "initialStateCheck": false },
+                { "name": "ShotForehand", "type": "Button", "id": "4f7a2c10-0002-4a00-9000-000000000005", "expectedControlType": "Button", "processors": "", "interactions": "", "initialStateCheck": false },
+                { "name": "ShotBackhand", "type": "Button", "id": "4f7a2c10-0002-4a00-9000-000000000006", "expectedControlType": "Button", "processors": "", "interactions": "", "initialStateCheck": false },
+                { "name": "ShotSlice", "type": "Button", "id": "4f7a2c10-0002-4a00-9000-000000000007", "expectedControlType": "Button", "processors": "", "interactions": "", "initialStateCheck": false },
+                { "name": "ShotFlat", "type": "Button", "id": "4f7a2c10-0002-4a00-9000-000000000008", "expectedControlType": "Button", "processors": "", "interactions": "", "initialStateCheck": false },
+                { "name": "ShotVolley", "type": "Button", "id": "4f7a2c10-0002-4a00-9000-000000000009", "expectedControlType": "Button", "processors": "", "interactions": "", "initialStateCheck": false },
+                { "name": "ShotLob", "type": "Button", "id": "4f7a2c10-0002-4a00-9000-00000000000a", "expectedControlType": "Button", "processors": "", "interactions": "", "initialStateCheck": false },
+                { "name": "ShotDrop", "type": "Button", "id": "4f7a2c10-0002-4a00-9000-00000000000b", "expectedControlType": "Button", "processors": "", "interactions": "", "initialStateCheck": false }
+            ],
+            "bindings": [
+                { "name": "WASD", "id": "4f7a2c10-0003-4a00-9000-000000000001", "path": "2DVector", "interactions": "", "processors": "", "groups": "", "action": "Move", "isComposite": true, "isPartOfComposite": false },
+                { "name": "up", "id": "4f7a2c10-0003-4a00-9000-000000000002", "path": "<Keyboard>/w", "interactions": "", "processors": "", "groups": "KeyboardP1", "action": "Move", "isComposite": false, "isPartOfComposite": true },
+                { "name": "down", "id": "4f7a2c10-0003-4a00-9000-000000000003", "path": "<Keyboard>/s", "interactions": "", "processors": "", "groups": "KeyboardP1", "action": "Move", "isComposite": false, "isPartOfComposite": true },
+                { "name": "left", "id": "4f7a2c10-0003-4a00-9000-000000000004", "path": "<Keyboard>/a", "interactions": "", "processors": "", "groups": "KeyboardP1", "action": "Move", "isComposite": false, "isPartOfComposite": true },
+                { "name": "right", "id": "4f7a2c10-0003-4a00-9000-000000000005", "path": "<Keyboard>/d", "interactions": "", "processors": "", "groups": "KeyboardP1", "action": "Move", "isComposite": false, "isPartOfComposite": true },
+                { "name": "Arrows", "id": "4f7a2c10-0003-4a00-9000-000000000006", "path": "2DVector", "interactions": "", "processors": "", "groups": "", "action": "Move", "isComposite": true, "isPartOfComposite": false },
+                { "name": "up", "id": "4f7a2c10-0003-4a00-9000-000000000007", "path": "<Keyboard>/upArrow", "interactions": "", "processors": "", "groups": "KeyboardP2", "action": "Move", "isComposite": false, "isPartOfComposite": true },
+                { "name": "down", "id": "4f7a2c10-0003-4a00-9000-000000000008", "path": "<Keyboard>/downArrow", "interactions": "", "processors": "", "groups": "KeyboardP2", "action": "Move", "isComposite": false, "isPartOfComposite": true },
+                { "name": "left", "id": "4f7a2c10-0003-4a00-9000-000000000009", "path": "<Keyboard>/leftArrow", "interactions": "", "processors": "", "groups": "KeyboardP2", "action": "Move", "isComposite": false, "isPartOfComposite": true },
+                { "name": "right", "id": "4f7a2c10-0003-4a00-9000-00000000000a", "path": "<Keyboard>/rightArrow", "interactions": "", "processors": "", "groups": "KeyboardP2", "action": "Move", "isComposite": false, "isPartOfComposite": true },
+                { "name": "", "id": "4f7a2c10-0003-4a00-9000-00000000000b", "path": "<Gamepad>/leftStick", "interactions": "", "processors": "", "groups": "Gamepad", "action": "Move", "isComposite": false, "isPartOfComposite": false },
+
+                { "name": "", "id": "4f7a2c10-0003-4a00-9000-000000000010", "path": "<Gamepad>/rightStick", "interactions": "", "processors": "", "groups": "Gamepad", "action": "Aim", "isComposite": false, "isPartOfComposite": false },
+
+                { "name": "", "id": "4f7a2c10-0003-4a00-9000-000000000020", "path": "<Keyboard>/leftShift", "interactions": "", "processors": "", "groups": "KeyboardP1", "action": "Sprint", "isComposite": false, "isPartOfComposite": false },
+                { "name": "", "id": "4f7a2c10-0003-4a00-9000-000000000021", "path": "<Keyboard>/rightShift", "interactions": "", "processors": "", "groups": "KeyboardP2", "action": "Sprint", "isComposite": false, "isPartOfComposite": false },
+                { "name": "", "id": "4f7a2c10-0003-4a00-9000-000000000022", "path": "<Gamepad>/rightTrigger", "interactions": "", "processors": "", "groups": "Gamepad", "action": "Sprint", "isComposite": false, "isPartOfComposite": false },
+
+                { "name": "", "id": "4f7a2c10-0003-4a00-9000-000000000030", "path": "<Keyboard>/space", "interactions": "", "processors": "", "groups": "KeyboardP1", "action": "ShotAuto", "isComposite": false, "isPartOfComposite": false },
+                { "name": "", "id": "4f7a2c10-0003-4a00-9000-000000000031", "path": "<Keyboard>/numpad0", "interactions": "", "processors": "", "groups": "KeyboardP2", "action": "ShotAuto", "isComposite": false, "isPartOfComposite": false },
+                { "name": "", "id": "4f7a2c10-0003-4a00-9000-000000000032", "path": "<Gamepad>/buttonSouth", "interactions": "", "processors": "", "groups": "Gamepad", "action": "ShotAuto", "isComposite": false, "isPartOfComposite": false },
+
+                { "name": "", "id": "4f7a2c10-0003-4a00-9000-000000000040", "path": "<Keyboard>/j", "interactions": "", "processors": "", "groups": "KeyboardP1", "action": "ShotForehand", "isComposite": false, "isPartOfComposite": false },
+                { "name": "", "id": "4f7a2c10-0003-4a00-9000-000000000041", "path": "<Keyboard>/numpad1", "interactions": "", "processors": "", "groups": "KeyboardP2", "action": "ShotForehand", "isComposite": false, "isPartOfComposite": false },
+                { "name": "", "id": "4f7a2c10-0003-4a00-9000-000000000042", "path": "<Gamepad>/dpad/right", "interactions": "", "processors": "", "groups": "Gamepad", "action": "ShotForehand", "isComposite": false, "isPartOfComposite": false },
+
+                { "name": "", "id": "4f7a2c10-0003-4a00-9000-000000000050", "path": "<Keyboard>/k", "interactions": "", "processors": "", "groups": "KeyboardP1", "action": "ShotBackhand", "isComposite": false, "isPartOfComposite": false },
+                { "name": "", "id": "4f7a2c10-0003-4a00-9000-000000000051", "path": "<Keyboard>/numpad2", "interactions": "", "processors": "", "groups": "KeyboardP2", "action": "ShotBackhand", "isComposite": false, "isPartOfComposite": false },
+                { "name": "", "id": "4f7a2c10-0003-4a00-9000-000000000052", "path": "<Gamepad>/dpad/left", "interactions": "", "processors": "", "groups": "Gamepad", "action": "ShotBackhand", "isComposite": false, "isPartOfComposite": false },
+
+                { "name": "", "id": "4f7a2c10-0003-4a00-9000-000000000060", "path": "<Keyboard>/u", "interactions": "", "processors": "", "groups": "KeyboardP1", "action": "ShotSlice", "isComposite": false, "isPartOfComposite": false },
+                { "name": "", "id": "4f7a2c10-0003-4a00-9000-000000000061", "path": "<Keyboard>/numpad4", "interactions": "", "processors": "", "groups": "KeyboardP2", "action": "ShotSlice", "isComposite": false, "isPartOfComposite": false },
+                { "name": "", "id": "4f7a2c10-0003-4a00-9000-000000000062", "path": "<Gamepad>/buttonEast", "interactions": "", "processors": "", "groups": "Gamepad", "action": "ShotSlice", "isComposite": false, "isPartOfComposite": false },
+
+                { "name": "", "id": "4f7a2c10-0003-4a00-9000-000000000070", "path": "<Keyboard>/h", "interactions": "", "processors": "", "groups": "KeyboardP1", "action": "ShotFlat", "isComposite": false, "isPartOfComposite": false },
+                { "name": "", "id": "4f7a2c10-0003-4a00-9000-000000000071", "path": "<Keyboard>/numpad5", "interactions": "", "processors": "", "groups": "KeyboardP2", "action": "ShotFlat", "isComposite": false, "isPartOfComposite": false },
+                { "name": "", "id": "4f7a2c10-0003-4a00-9000-000000000072", "path": "<Gamepad>/buttonWest", "interactions": "", "processors": "", "groups": "Gamepad", "action": "ShotFlat", "isComposite": false, "isPartOfComposite": false },
+
+                { "name": "", "id": "4f7a2c10-0003-4a00-9000-000000000080", "path": "<Keyboard>/l", "interactions": "", "processors": "", "groups": "KeyboardP1", "action": "ShotVolley", "isComposite": false, "isPartOfComposite": false },
+                { "name": "", "id": "4f7a2c10-0003-4a00-9000-000000000081", "path": "<Keyboard>/numpad3", "interactions": "", "processors": "", "groups": "KeyboardP2", "action": "ShotVolley", "isComposite": false, "isPartOfComposite": false },
+                { "name": "", "id": "4f7a2c10-0003-4a00-9000-000000000082", "path": "<Gamepad>/rightShoulder", "interactions": "", "processors": "", "groups": "Gamepad", "action": "ShotVolley", "isComposite": false, "isPartOfComposite": false },
+
+                { "name": "", "id": "4f7a2c10-0003-4a00-9000-000000000090", "path": "<Keyboard>/i", "interactions": "", "processors": "", "groups": "KeyboardP1", "action": "ShotLob", "isComposite": false, "isPartOfComposite": false },
+                { "name": "", "id": "4f7a2c10-0003-4a00-9000-000000000091", "path": "<Keyboard>/numpad6", "interactions": "", "processors": "", "groups": "KeyboardP2", "action": "ShotLob", "isComposite": false, "isPartOfComposite": false },
+                { "name": "", "id": "4f7a2c10-0003-4a00-9000-000000000092", "path": "<Gamepad>/buttonNorth", "interactions": "", "processors": "", "groups": "Gamepad", "action": "ShotLob", "isComposite": false, "isPartOfComposite": false },
+
+                { "name": "", "id": "4f7a2c10-0003-4a00-9000-0000000000a0", "path": "<Keyboard>/o", "interactions": "", "processors": "", "groups": "KeyboardP1", "action": "ShotDrop", "isComposite": false, "isPartOfComposite": false },
+                { "name": "", "id": "4f7a2c10-0003-4a00-9000-0000000000a1", "path": "<Keyboard>/numpad7", "interactions": "", "processors": "", "groups": "KeyboardP2", "action": "ShotDrop", "isComposite": false, "isPartOfComposite": false },
+                { "name": "", "id": "4f7a2c10-0003-4a00-9000-0000000000a2", "path": "<Gamepad>/leftShoulder", "interactions": "", "processors": "", "groups": "Gamepad", "action": "ShotDrop", "isComposite": false, "isPartOfComposite": false }
+            ]
+        }
+    ],
+    "controlSchemes": [
+        { "name": "KeyboardP1", "bindingGroup": "KeyboardP1", "devices": [ { "devicePath": "<Keyboard>", "isOptional": false, "isOR": false } ] },
+        { "name": "KeyboardP2", "bindingGroup": "KeyboardP2", "devices": [ { "devicePath": "<Keyboard>", "isOptional": false, "isOR": false } ] },
+        { "name": "Gamepad", "bindingGroup": "Gamepad", "devices": [ { "devicePath": "<Gamepad>", "isOptional": false, "isOR": false } ] }
+    ]
+}
