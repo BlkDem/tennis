@@ -25,8 +25,18 @@ namespace TennisSim.Simulation
         public int BallRevision;
         /// <summary>This player is allowed to play the ball right now.</summary>
         public bool CanHit;
+        /// <summary>The ball is a serve that has not bounced yet: the receiver must let it land.</summary>
+        public bool MustLetBounce;
         public bool AwaitingServe;
+        /// <summary>The server's toss is in the air.</summary>
+        public bool Tossing;
+        /// <summary>When the toss drops through the ideal contact height; NaN when there is no toss.</summary>
+        public float ServeContactTime;
         public bool IsServer;
+        /// <summary>The box the current serve must land in.</summary>
+        public ServiceBox ServeBox;
+        /// <summary>1 for a first serve, 2 for a second serve.</summary>
+        public int ServeNumber;
     }
 
     /// <summary>Source of player decisions: a human through InputManager, a bot, or a test script.</summary>

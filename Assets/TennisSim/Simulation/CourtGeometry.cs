@@ -44,5 +44,31 @@ namespace TennisSim.Simulation
         /// <summary>Lines are part of the court, so any contact up to the outer edge of a line counts as in.</summary>
         public static bool IsInsideSingles(float x, float z) =>
             Mathf.Abs(x) <= HalfSinglesWidth && Mathf.Abs(z) <= HalfLength;
+
+        /// <summary>World X sign of the half of the baseline the server stands behind: the server's right on the deuce side.</summary>
+        public static float ServeSideSign(PlayerSlot server, bool deuceSide) => (deuceSide ? 1f : -1f) * ForwardSign(server);
+
+        /// <summary>The box a serve must land in: on the receiver's half, diagonally across from the server.</summary>
+        public static ServiceBox ServiceBoxFor(PlayerSlot server, bool deuceSide)
+        {
+            float boxX = -ServeSideSign(server, deuceSide);
+            float boxZ = ForwardSign(server);
+            return new ServiceBox
+            {
+                MinX = boxX > 0f ? 0f : -HalfSinglesWidth,
+                MaxX = boxX > 0f ? HalfSinglesWidth : 0f,
+                MinZ = boxZ > 0f ? 0f : -ServiceLineFromNet,
+                MaxZ = boxZ > 0f ? ServiceLineFromNet : 0f,
+            };
+        }
+    }
+
+    /// <summary>A service box in world coordinates. Its lines count as in.</summary>
+    public struct ServiceBox
+    {
+        public float MinX, MaxX, MinZ, MaxZ;
+
+        public bool Contains(float x, float z) => x >= MinX && x <= MaxX && z >= MinZ && z <= MaxZ;
+        public float CenterX => (MinX + MaxX) * 0.5f;
     }
 }

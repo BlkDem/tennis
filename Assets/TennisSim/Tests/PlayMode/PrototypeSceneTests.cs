@@ -22,6 +22,7 @@ namespace TennisSim.Tests
         int points;
         float racketDistanceTotal;
         bool nearHitSeen;
+        bool serveSaved;
 
         static Renderer RacketOf(PlayerController player) =>
             player.GetComponentsInChildren<SkinnedMeshRenderer>().First(r => r.name == "Racket");
@@ -34,6 +35,11 @@ namespace TennisSim.Tests
                 Renderer racket = e.Slot == PlayerSlot.Near ? nearRacket : farRacket;
                 racketDistanceTotal += Vector3.Distance(racket.bounds.center, e.Point);
                 if (e.Slot == PlayerSlot.Near && hits > 2) nearHitSeen = true;
+                if (e.Slot == PlayerSlot.Near && !serveSaved && game.Session.RallyHits == 1)
+                {
+                    serveSaved = true;
+                    SaveCloseUp(game.nearPlayer.Position, "serve.png");
+                }
             }
             if (e.Type == RallyEventType.PointEnded) points++;
         }
@@ -50,6 +56,7 @@ namespace TennisSim.Tests
             hits = points = 0;
             racketDistanceTotal = 0f;
             nearHitSeen = false;
+            serveSaved = false;
             GameEvents.RallyEvent += OnRallyEvent;
             Time.timeScale = 3f;
         }
@@ -96,7 +103,7 @@ namespace TennisSim.Tests
                 if (!savedContact && nearHitSeen)
                 {
                     savedContact = true;
-                    SaveCloseUp(nearPlayer.Position);
+                    SaveCloseUp(nearPlayer.Position, "contact.png");
                 }
 
                 Vector3 feet = camera.WorldToViewportPoint(nearPlayer.Position);
@@ -119,8 +126,8 @@ namespace TennisSim.Tests
             Assert.That(visibleFrames / (float)inPlayFrames, Is.GreaterThan(0.97f), "the camera should keep the ball in view");
         }
 
-        /// <summary>A close view of the player just after a hit, for judging the swing by eye.</summary>
-        static void SaveCloseUp(Vector3 playerPosition)
+        /// <summary>A close view of the player at a hit, for judging the swing by eye.</summary>
+        static void SaveCloseUp(Vector3 playerPosition, string fileName)
         {
             var cameraObject = new GameObject("Close-up Camera");
             var closeUp = cameraObject.AddComponent<Camera>();
@@ -128,7 +135,7 @@ namespace TennisSim.Tests
             closeUp.backgroundColor = new Color(0.56f, 0.72f, 0.88f);
             cameraObject.transform.position = playerPosition + new Vector3(-1.5f, 1.5f, 3.5f);
             cameraObject.transform.LookAt(playerPosition + Vector3.up);
-            SaveScreenshot(closeUp, "contact.png");
+            SaveScreenshot(closeUp, fileName);
             Object.Destroy(cameraObject);
         }
 

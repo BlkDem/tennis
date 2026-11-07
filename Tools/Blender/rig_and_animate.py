@@ -554,6 +554,74 @@ BACKHAND_FINISH = make_pose(
     elbow_l=(0.1, 0.7, -0.6),
 )
 
+# Slices swing high to low with an open face. The backhand slice is one-handed, the free arm opening behind.
+FOREHAND_SLICE_BACK = make_pose(
+    spine_rot=(5.0, 22.0, 0.0),
+    chest_rot=(6.0, 28.0, 0.0),
+    grip=(0.55, -0.15, 1.42),
+    racket=(0.2, -0.5, 0.84),
+    face=(-0.1, 0.7, 0.7),
+    hand_l=(0.1, 0.4, 1.22),
+    two_hand=(0.0,),
+    elbow_r=(0.8, -0.5, -0.3),
+    elbow_l=(-0.7, 0.2, -0.7),
+)
+FOREHAND_SLICE_CONTACT = make_pose(
+    spine_rot=(5.0, -2.0, 0.0),
+    chest_rot=(6.0, -4.0, -5.0),
+    grip=(0.55, 0.26, 1.05),
+    racket=(0.85, 0.45, 0.25),
+    face=(-0.45, 0.75, 0.48),
+    hand_l=(-0.3, 0.25, 1.05),
+    two_hand=(0.0,),
+    elbow_r=(0.7, -0.3, -0.6),
+    elbow_l=(-0.8, -0.1, -0.6),
+)
+FOREHAND_SLICE_FINISH = make_pose(
+    spine_rot=(5.0, -14.0, 0.0),
+    chest_rot=(6.0, -16.0, 0.0),
+    grip=(0.15, 0.62, 1.02),
+    racket=(-0.1, 0.8, 0.3),
+    face=(-0.3, 0.4, 0.85),
+    hand_l=(-0.4, 0.1, 1.05),
+    two_hand=(0.0,),
+    elbow_r=(0.6, -0.2, -0.75),
+    elbow_l=(-0.8, -0.3, -0.5),
+)
+BACKHAND_SLICE_BACK = make_pose(
+    spine_rot=(5.0, -28.0, 0.0),
+    chest_rot=(6.0, -36.0, 0.0),
+    grip=(-0.42, -0.08, 1.45),
+    racket=(-0.2, -0.5, 0.84),
+    face=(0.1, 0.7, 0.7),
+    hand_l=(-0.3, -0.02, 1.5),
+    two_hand=(0.0,),
+    elbow_r=(0.4, 0.3, -0.85),
+    elbow_l=(-0.8, -0.3, -0.5),
+)
+BACKHAND_SLICE_CONTACT = make_pose(
+    spine_rot=(5.0, 0.0, 0.0),
+    chest_rot=(6.0, 0.0, 6.0),
+    grip=(-0.5, 0.28, 1.05),
+    racket=(-0.85, 0.45, 0.25),
+    face=(0.45, 0.75, 0.48),
+    hand_l=(-0.55, -0.3, 1.12),
+    two_hand=(0.0,),
+    elbow_r=(0.3, 0.3, -0.9),
+    elbow_l=(-0.7, -0.6, -0.3),
+)
+BACKHAND_SLICE_FINISH = make_pose(
+    spine_rot=(5.0, 10.0, 0.0),
+    chest_rot=(6.0, 12.0, 0.0),
+    grip=(-0.2, 0.65, 1.05),
+    racket=(0.1, 0.8, 0.3),
+    face=(0.3, 0.4, 0.85),
+    hand_l=(-0.68, -0.35, 1.15),
+    two_hand=(0.0,),
+    elbow_r=(0.6, -0.1, -0.8),
+    elbow_l=(-0.7, -0.6, -0.3),
+)
+
 VOLLEY_BACK = make_pose(
     spine_rot=(5.0, 12.0, 0.0),
     chest_rot=(6.0, 14.0, 0.0),
@@ -645,22 +713,40 @@ SERVE_TOSS = make_pose(
     elbow_r=(0.9, -0.1, 0.1),
     elbow_l=(-0.7, 0.3, -0.5),
 )
+# The racket head meets the ball at ShotTuning.ServeContact: (0.28, 0.36, 2.45) from the feet.
 SERVE_CONTACT = make_pose(
     pelvis_pos=(0.0, 0.1, 0.05),
     pelvis_rot=(5.0, -8.0, 0.0),
     spine_rot=(6.0, -6.0, 0.0),
     chest_rot=(10.0, -10.0, 0.0),
-    head_rot=(-25.0, 0.0, 0.0),
+    head_rot=(-30.0, 0.0, 0.0),
     foot_l=(-0.2, 0.2, 0.3),
     foot_r=(0.25, -0.05, 0.32),
     foot_l_rot=(-25.0, -12.0),
     foot_r_rot=(-30.0, 12.0),
-    grip=(0.3, 0.38, 1.98),
-    racket=(0.12, 0.42, 0.9),
-    face=(-0.1, 0.92, -0.4),
+    grip=(0.27, 0.25, 1.99),
+    racket=(0.02, 0.25, 0.97),
+    face=(0.0, 0.97, -0.25),
     hand_l=(-0.28, 0.32, 1.25),
     two_hand=(0.0,),
     elbow_r=(0.9, -0.2, -0.3),
+)
+SERVE_DROP = make_pose(
+    pelvis_pos=(0.0, 0.02, -0.08),
+    pelvis_rot=(-2.0, 8.0, 0.0),
+    spine_rot=(-10.0, 8.0, 0.0),
+    chest_rot=(-14.0, 6.0, 0.0),
+    head_rot=(-32.0, 0.0, 0.0),
+    foot_l=(-0.2, 0.15, 0.225),
+    foot_r=(0.25, -0.1, 0.24),
+    foot_r_rot=(-15.0, 12.0),
+    grip=(0.36, -0.05, 1.62),
+    racket=(0.05, -0.35, -0.94),
+    face=(0.95, 0.0, 0.1),
+    hand_l=(-0.15, 0.32, 1.6),
+    two_hand=(0.0,),
+    elbow_r=(0.9, 0.1, 0.4),
+    elbow_l=(-0.7, 0.3, -0.5),
 )
 SERVE_FINISH = make_pose(
     pelvis_pos=(0.0, 0.25, -0.1),
@@ -893,6 +979,22 @@ def author_shots(solver):
         (contact + 0.40, BACKHAND_FINISH),
         (contact + 0.62, READY),
     ])
+    hold(solver, "ForehandSlice_Prep", FOREHAND_SLICE_BACK)
+    author_keys(solver, "ForehandSlice_Swing", [
+        (0.0, FOREHAND_SLICE_BACK),
+        (contact, FOREHAND_SLICE_CONTACT),
+        (contact + 0.16, FOREHAND_SLICE_FINISH),
+        (contact + 0.36, FOREHAND_SLICE_FINISH),
+        (contact + 0.62, READY),
+    ])
+    hold(solver, "BackhandSlice_Prep", BACKHAND_SLICE_BACK)
+    author_keys(solver, "BackhandSlice_Swing", [
+        (0.0, BACKHAND_SLICE_BACK),
+        (contact, BACKHAND_SLICE_CONTACT),
+        (contact + 0.16, BACKHAND_SLICE_FINISH),
+        (contact + 0.36, BACKHAND_SLICE_FINISH),
+        (contact + 0.62, READY),
+    ])
     hold(solver, "Volley_Prep", VOLLEY_BACK)
     author_keys(solver, "Volley_Swing", [
         (0.0, VOLLEY_BACK),
@@ -908,13 +1010,21 @@ def author_shots(solver):
         (contact + 0.32, SMASH_FINISH),
         (contact + 0.62, READY),
     ])
-    author_keys(solver, "Serve", [
+    # The serve is split like every shot: the toss is held until release, and the swing reaches
+    # its contact pose SWING_LATENCY after it starts. The ready pose holds the ball in the left hand.
+    hold(solver, "Serve_Ready", SERVE_START, wobble=0.004)
+    author_keys(solver, "Serve_Toss", [
         (0.0, SERVE_START),
-        (0.55, SERVE_TOSS),
-        (0.82, SERVE_TOSS),
-        (1.0, SERVE_CONTACT),
-        (1.25, SERVE_FINISH),
-        (1.7, READY),
+        (0.45, SERVE_TOSS),
+        (1.6, SERVE_TOSS),
+    ])
+    author_keys(solver, "Serve_Swing", [
+        (0.0, SERVE_TOSS),
+        (contact * 0.5, SERVE_DROP),
+        (contact, SERVE_CONTACT),
+        (contact + 0.25, SERVE_FINISH),
+        (contact + 0.5, SERVE_FINISH),
+        (contact + 0.9, READY),
     ])
     author_keys(solver, "Recovery", [
         (0.0, FOREHAND_FINISH),

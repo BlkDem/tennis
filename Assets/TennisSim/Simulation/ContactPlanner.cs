@@ -41,7 +41,7 @@ namespace TennisSim.Simulation
         const float AirborneContactCost = 1f;
 
         public static ContactPlan Find(BallTrajectory trajectory, Vector3 feet, PlayerSlot slot, HandSide? forcedSide,
-            ShotButton button, float now, float maxSpeed, PlayerMovementTuning movement, ShotTuning t)
+            ShotButton button, float now, float maxSpeed, PlayerMovementTuning movement, ShotTuning t, bool mustLetBounce = false)
         {
             ContactPlan best = default;
             float bestCost = float.PositiveInfinity;
@@ -50,6 +50,7 @@ namespace TennisSim.Simulation
             foreach (TrajectorySample sample in trajectory.Samples)
             {
                 if (sample.Bounces >= 2) break;
+                if (mustLetBounce && sample.Bounces == 0) continue; // A serve has to bounce before the return.
                 float lead = sample.Time - now;
                 if (lead < MinLeadTime) continue;
 

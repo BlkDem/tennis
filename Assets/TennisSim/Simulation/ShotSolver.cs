@@ -31,19 +31,35 @@ namespace TennisSim.Simulation
         /// <summary>Axis of topspin for a ball moving in this horizontal direction.</summary>
         public static Vector3 TopspinAxis(Vector3 horizontalDirection) => Vector3.Cross(Vector3.up, horizontalDirection);
 
+        const int CurveCorrections = 3;
+
+        /// <param name="sideSpin">Spin about the vertical axis, rad/s; positive curves the ball to the hitter's left.
+        /// The aim is corrected for the curve, so the ball still lands on the target.</param>
         public static ShotSolution Solve(Vector3 contact, Vector2 targetXZ, float speed, float spinRate, float clearance,
-            float fixedElevationDegrees, in BallPhysicsParams p)
+            float fixedElevationDegrees, in BallPhysicsParams p, float sideSpin = 0f)
         {
-            Vector3 toTarget = new Vector3(targetXZ.x - contact.x, 0f, targetXZ.y - contact.z);
-            float distance = toTarget.magnitude;
-            if (distance < 0.01f) return default;
+            Vector2 aimXZ = targetXZ;
+            ShotSolution solution = default;
+            int passes = Mathf.Approximately(sideSpin, 0f) ? 1 : CurveCorrections + 1;
 
-            Vector3 direction = toTarget / distance;
-            Vector3 spin = TopspinAxis(direction) * spinRate;
+            for (int pass = 0; pass < passes; pass++)
+            {
+                Vector3 toTarget = new Vector3(aimXZ.x - contact.x, 0f, aimXZ.y - contact.z);
+                float distance = toTarget.magnitude;
+                if (distance < 0.01f) return default;
 
-            return fixedElevationDegrees > 0f
-                ? SolveArc(contact, direction, spin, distance, clearance, fixedElevationDegrees, p)
-                : SolveDriven(contact, direction, spin, distance, speed, clearance, p);
+                Vector3 direction = toTarget / distance;
+                Vector3 spin = TopspinAxis(direction) * spinRate - Vector3.up * sideSpin;
+
+                solution = fixedElevationDegrees > 0f
+                    ? SolveArc(contact, direction, spin, distance, clearance, fixedElevationDegrees, p)
+                    : SolveDriven(contact, direction, spin, distance, speed, clearance, p);
+
+                if (pass == passes - 1) break;
+                Fly(contact, solution.Velocity, solution.Spin, direction, p, out _, out _, out Vector3 landing);
+                aimXZ += targetXZ - new Vector2(landing.x, landing.z);
+            }
+            return solution;
         }
 
         /// <summary>Driven shots keep the requested pace if they can, and give up speed to clear the net when they cannot.</summary>
@@ -133,10 +149,15 @@ namespace TennisSim.Simulation
 
         /// <summary>Flies the shot to its first landing, ignoring the net but measuring how far above it the ball passes.</summary>
         static void Fly(Vector3 contact, Vector3 velocity, Vector3 spin, Vector3 direction, in BallPhysicsParams p,
-            out float range, out float netClearance)
+            out float range, out float netClearance) =>
+            Fly(contact, velocity, spin, direction, p, out range, out netClearance, out _);
+
+        static void Fly(Vector3 contact, Vector3 velocity, Vector3 spin, Vector3 direction, in BallPhysicsParams p,
+            out float range, out float netClearance, out Vector3 landing)
         {
             BallState state = new BallState { Position = contact, Velocity = velocity, Spin = spin };
             netClearance = float.PositiveInfinity;
+            landing = contact;
             int steps = Mathf.CeilToInt(FlightLimit / SolverDt);
 
             for (int i = 0; i < steps; i++)
@@ -155,11 +176,12 @@ namespace TennisSim.Simulation
                 if (state.Position.y <= p.Radius)
                 {
                     float t = (before.y - p.Radius) / Mathf.Max(before.y - state.Position.y, 1e-5f);
-                    Vector3 landing = Vector3.Lerp(before, state.Position, t);
+                    landing = Vector3.Lerp(before, state.Position, t);
                     range = Vector3.Dot(landing - contact, direction);
                     return;
                 }
             }
+            landing = state.Position;
             range = float.PositiveInfinity;
         }
 

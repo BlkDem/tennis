@@ -50,7 +50,7 @@ namespace TennisSim
             FaceTheBall();
 
             if (animationController != null)
-                animationController.Present(Agent, session.Ball.Position, session.State == SessionState.Rally, session.Time);
+                animationController.Present(Agent, session);
         }
 
         void FaceTheBall()
@@ -58,9 +58,11 @@ namespace TennisSim
             Vector3 forward = StrikeZone.Forward(Agent.Slot);
             Vector3 facing = forward;
 
-            // A shot faces the net: its clips are authored for a strike zone measured from there.
+            // A shot or a serve faces the net: the clips are authored for a strike zone measured from there.
             SwingPhase phase = Agent.Shot.Phase;
-            if (phase != SwingPhase.Preparing && phase != SwingPhase.Swinging)
+            bool serving = Agent.Serve.Phase == ServePhase.Tossing || Agent.Serve.Phase == ServePhase.Swinging
+                || (session.State == SessionState.AwaitingServe && session.Server == Agent.Slot);
+            if (phase != SwingPhase.Preparing && phase != SwingPhase.Swinging && !serving)
             {
                 Vector3 toBall = session.Ball.Position - Position;
                 toBall.y = 0f;

@@ -124,7 +124,7 @@ namespace TennisSim.Simulation
         {
             plannedRevision = p.BallRevision;
             Plan = p.CanHit && !p.AwaitingServe && p.Trajectory != null
-                ? ContactPlanner.Find(p.Trajectory, p.Position, slot, ForcedSide(ActiveButton), ActiveButton, p.Now, maxSpeed, movementTuning, tuning)
+                ? ContactPlanner.Find(p.Trajectory, p.Position, slot, ForcedSide(ActiveButton), ActiveButton, p.Now, maxSpeed, movementTuning, tuning, p.MustLetBounce)
                 : default;
             if (Plan.Valid) DisplaySide = Plan.Side;
         }
@@ -141,7 +141,7 @@ namespace TennisSim.Simulation
         {
             float sweetTime = swingStart + tuning.SwingLatency;
 
-            if (p.CanHit && !p.AwaitingServe)
+            if (p.CanHit && !p.AwaitingServe && !p.MustLetBounce)
             {
                 HandSide side = ChooseSide(p);
                 Vector3 ball = p.Ball.Position;
@@ -178,6 +178,8 @@ namespace TennisSim.Simulation
             var context = new ShotContext
             {
                 ContactPoint = ball,
+                IncomingVelocity = p.Ball.Velocity,
+                Stretch = Mathf.Clamp01(spacing / tuning.ReachRadius),
                 BallHasBounced = p.BouncesSinceHit > 0,
                 Slot = slot,
                 Button = ActiveButton,

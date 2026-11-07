@@ -157,6 +157,69 @@ namespace TennisSim.Tests
             Assert.That(ShotPlanner.ResolveKind(button, height, bounced, T), Is.EqualTo(expected));
         }
 
+        [TestCase(ShotButton.Auto, 1.0f, true, false, 0.8f, ShotKind.Defensive)]
+        [TestCase(ShotButton.Flat, 1.0f, true, false, 0.8f, ShotKind.Defensive)]
+        [TestCase(ShotButton.Lob, 1.0f, true, false, 0.8f, ShotKind.Lob)]
+        [TestCase(ShotButton.Auto, 0.3f, true, true, 0.2f, ShotKind.HalfVolley)]
+        [TestCase(ShotButton.Auto, 0.3f, true, false, 0.2f, ShotKind.Topspin)]
+        [TestCase(ShotButton.Slice, 0.8f, true, true, 0.2f, ShotKind.Slice)]
+        public void ResolveKind_StretchedAndHalfVolleyShots(ShotButton button, float height, bool bounced, bool rising, float stretch, ShotKind expected)
+        {
+            Assert.That(ShotPlanner.ResolveKind(button, height, bounced, rising, stretch, T), Is.EqualTo(expected));
+        }
+
+        [Test]
+        public void Solver_SideSpinCurvesButStillLandsOnTarget()
+        {
+            Vector3 contact = new Vector3(0.9f, 2.45f, -11.9f);
+            Vector2 target = new Vector2(-2.5f, 5.2f);
+            ShotProfile slice = T.Profile(ShotKind.ServeSlice);
+            ShotSolution s = ShotSolver.Solve(contact, target, slice.MaxSpeed, slice.Spin, slice.NetClearance, 0f, P, slice.SideSpin);
+            Flight flight = FlyOut(contact, s.Velocity, s.Spin);
+
+            Assert.That(s.Spin.y, Is.LessThan(-100f), "a slice serve spins about the vertical axis");
+            Assert.That(flight.HitNet, Is.False);
+            Assert.That(Vector2.Distance(new Vector2(flight.Landing.x, flight.Landing.z), target), Is.LessThan(0.3f));
+
+            // Launched straight at the target, it would curve to the server's left (-X for the near player).
+            Vector3 straight = new Vector3(target.x - contact.x, 0f, target.y - contact.z).normalized;
+            float launchedAcross = Vector3.Cross(straight, s.Velocity.normalized).y;
+            Assert.That(launchedAcross, Is.GreaterThan(0f), "the aim is corrected to the right so the curve brings it back");
+        }
+
+        [Test]
+        public void Mistiming_PullsTheBallSideways()
+        {
+            Vector3 contact = new Vector3(0f, 1f, -11.5f);
+            float LandingX(float timingError, HandSide side)
+            {
+                var context = new ShotContext
+                {
+                    ContactPoint = contact,
+                    BallHasBounced = true,
+                    Slot = PlayerSlot.Near,
+                    Button = ShotButton.Auto,
+                    Side = side,
+                    Contact = new ContactEvaluation { Score = 0.9f, Quality = ContactQuality.Perfect, TimingError = timingError },
+                    Preparation = 1f,
+                };
+                ShotResult r = ShotPlanner.Plan(context, T, P, new System.Random(3));
+                return FlyOut(contact, r.Velocity, r.Spin).Landing.x;
+            }
+
+            // The near player's right is +X: an early forehand goes left, a late one right; the backhand is the mirror.
+            Assert.That(LandingX(-0.1f, HandSide.Forehand), Is.LessThan(LandingX(0.1f, HandSide.Forehand) - 1f));
+            Assert.That(LandingX(-0.1f, HandSide.Backhand), Is.GreaterThan(LandingX(0.1f, HandSide.Backhand) + 1f));
+        }
+
+        [Test]
+        public void HighBallsAreHitHarderThanLowOnes()
+        {
+            float Speed(float height) => PlanPerfect(ShotButton.Flat, new Vector3(0f, height, -11.5f), true).Velocity.magnitude;
+            Assert.That(Speed(1.8f), Is.GreaterThan(Speed(1.0f)));
+            Assert.That(Speed(1.0f), Is.GreaterThan(Speed(0.4f)));
+        }
+
         [TestCase(0f, 0f, 0f, ContactQuality.Perfect)]
         [TestCase(0.02f, 0.1f, 0f, ContactQuality.Perfect)]
         [TestCase(0.06f, 0.05f, 0f, ContactQuality.Good)]

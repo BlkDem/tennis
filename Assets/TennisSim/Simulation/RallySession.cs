@@ -4,9 +4,9 @@ using UnityEngine;
 
 namespace TennisSim.Simulation
 {
-    public enum SessionState { AwaitingServe, Rally, PointOver }
+    public enum SessionState { AwaitingServe, Toss, Rally, ServeCalled, PointOver }
 
-    public enum RallyEventType { ServeDropped, Hit, Bounce, NetFabric, NetCord, PointEnded, ServeReset }
+    public enum RallyEventType { ServeToss, TossCaught, Hit, Bounce, NetFabric, NetCord, Fault, Let, PointEnded }
 
     public struct RallyEvent
     {
@@ -16,23 +16,30 @@ namespace TennisSim.Simulation
         public float ImpactSpeed;
         public ShotResult Shot;
         public PointEndReason Reason;
+        /// <summary>For serve events: 1 for a first serve, 2 for a second.</summary>
+        public int ServeNumber;
+        /// <summary>For a finished point: whether it also finished a game or a set.</summary>
+        public ScoreChange ScoreChange;
     }
 
     /// <summary>
-    /// The whole gameplay loop as plain C#: ball, two players, referee. It runs identically in the game
-    /// and in headless tests. The MonoBehaviour layer only feeds intents in and presents the result.
+    /// The whole gameplay loop as plain C#: ball, two players, referee and score. It runs identically in the
+    /// game and in headless tests. The MonoBehaviour layer only feeds intents in and presents the result.
     /// </summary>
     public sealed class RallySession
     {
         public const float TickRate = 120f;
         public const float TickDt = 1f / TickRate;
         const float PredictionHorizon = 5f;
+        const float TossPredictionHorizon = 2.5f;
         const float PointOverDuration = 2.2f;
-        const float ServeHeight = 1.6f;
-        const float ServerBehindBaseline = 0.4f;
-        const float ServerOffsetX = 1.2f;
-        const float ReceiverBehindBaseline = 0.8f;
-        const float ReceiverOffsetX = 2f;
+        const float ServeCallDuration = 1.3f;
+        const float ServerBehindBaseline = 0.15f;
+        const float ServerOffsetX = 0.9f;
+        const float ServerMaxX = CourtGeometry.HalfSinglesWidth - 0.3f;
+        const float ServerMinX = 0.25f;
+        const float ReceiverBehindBaseline = 0.9f;
+        const float ReceiverOffsetX = 2.9f;
 
         readonly BallPhysicsParams physics;
         readonly ShotTuning shotTuning;
@@ -43,16 +50,23 @@ namespace TennisSim.Simulation
         readonly int[] points = new int[2];
 
         BallState ball;
-        float pointOverAt;
+        float stateEndsAt;
+        float serveContactTime = float.NaN;
 
         public float Time { get; private set; }
         public SessionState State { get; private set; }
-        public PlayerSlot Server { get; private set; } = PlayerSlot.Near;
+        public TennisScore Score { get; }
+        public PlayerSlot Server => Score.Server;
+        public PlayerSlot Receiver => CourtGeometry.Opponent(Server);
+        /// <summary>1 for a first serve, 2 for a second serve.</summary>
+        public int ServeNumber { get; private set; } = 1;
+        public ServiceBox ServeBox { get; private set; }
         public BallState Ball => ball;
         public BallTrajectory Trajectory => trajectory;
         public int BallRevision { get; private set; }
         public int RallyHits => referee.Hits;
         public int BouncesSinceHit => referee.BouncesSinceHit;
+        public bool ServeInFlight => State == SessionState.Rally && referee.ServeInFlight;
         public IReadOnlyList<RallyEvent> Events => events;
 
         public RallySession(in BallPhysicsParams physics, ShotTuning shotTuning, PlayerMovementTuning movementTuning, int seed)
@@ -65,10 +79,12 @@ namespace TennisSim.Simulation
                 new PlayerAgent(PlayerSlot.Near, movementTuning, shotTuning, physics, rng),
                 new PlayerAgent(PlayerSlot.Far, movementTuning, shotTuning, physics, rng),
             };
-            StartPoint(PlayerSlot.Near);
+            Score = new TennisScore(PlayerSlot.Near);
+            StartPoint();
         }
 
         public PlayerAgent Agent(PlayerSlot slot) => agents[(int)slot];
+        /// <summary>All points this player has won, across games.</summary>
         public int Points(PlayerSlot slot) => points[(int)slot];
 
         public void Tick(float dt)
@@ -79,37 +95,44 @@ namespace TennisSim.Simulation
             TickPlayer(agents[0], dt);
             TickPlayer(agents[1], dt);
 
-            if (State == SessionState.AwaitingServe)
+            switch (State)
             {
-                HoldBallAtServer();
-                foreach (PlayerAgent agent in agents)
-                    if (agent.Slot == Server && agent.ServeRequested) DropServe();
-                return;
-            }
+                case SessionState.AwaitingServe:
+                    KeepServerBehindTheirHalfOfTheBaseline();
+                    HoldBallInServersHand();
+                    if (agents[(int)Server].Serve.TossRequested) Toss();
+                    break;
 
-            StepBall(dt);
+                case SessionState.Toss:
+                    StepBall(dt);
+                    if (State == SessionState.Toss && ball.Position.y < shotTuning.TossCatchHeight && ball.Velocity.y < 0f)
+                    {
+                        events.Add(new RallyEvent { Type = RallyEventType.TossCaught, Slot = Server });
+                        StartServe();
+                    }
+                    break;
 
-            if (State == SessionState.Rally)
-            {
-                if (referee.FeedExpired)
-                {
-                    PlayerSlot server = Server;
-                    StartPoint(server);
-                    events.Add(new RallyEvent { Type = RallyEventType.ServeReset, Slot = server });
-                }
-                else if (referee.IsFinished)
-                {
-                    EndPoint();
-                }
-            }
-            else if (State == SessionState.PointOver && Time >= pointOverAt)
-            {
-                StartPoint(CourtGeometry.Opponent(Server));
+                case SessionState.Rally:
+                    StepBall(dt);
+                    if (referee.Call != ServeCall.None) CallServe(referee.Call);
+                    else if (referee.IsFinished) EndPoint(referee.Winner, referee.Reason);
+                    break;
+
+                case SessionState.ServeCalled:
+                    StepBall(dt);
+                    if (Time >= stateEndsAt) StartServe();
+                    break;
+
+                case SessionState.PointOver:
+                    StepBall(dt);
+                    if (Time >= stateEndsAt) StartPoint();
+                    break;
             }
         }
 
         void TickPlayer(PlayerAgent agent, float dt)
         {
+            bool rally = State == SessionState.Rally;
             var perception = new PlayerPerception
             {
                 Now = Time,
@@ -119,9 +142,14 @@ namespace TennisSim.Simulation
                 Trajectory = trajectory,
                 BouncesSinceHit = referee.BouncesSinceHit,
                 BallRevision = BallRevision,
-                CanHit = State == SessionState.Rally && referee.CanHit(agent.Slot),
+                CanHit = rally && referee.CanHit(agent.Slot),
+                MustLetBounce = rally && referee.ServeInFlight,
                 AwaitingServe = State == SessionState.AwaitingServe,
+                Tossing = State == SessionState.Toss,
+                ServeContactTime = State == SessionState.Toss ? serveContactTime : float.NaN,
                 IsServer = agent.Slot == Server,
+                ServeBox = ServeBox,
+                ServeNumber = ServeNumber,
             };
 
             ShotResult? shot = agent.Tick(perception, dt);
@@ -132,78 +160,145 @@ namespace TennisSim.Simulation
         {
             ball.Velocity = shot.Velocity;
             ball.Spin = shot.Spin;
-            referee.OnHit(slot);
-            RefreshPrediction();
-            events.Add(new RallyEvent { Type = RallyEventType.Hit, Slot = slot, Point = ball.Position, Shot = shot });
+            if (State == SessionState.Toss)
+            {
+                State = SessionState.Rally;
+                referee.BeginServe(slot, ServeBox);
+            }
+            else
+            {
+                referee.OnHit(slot);
+            }
+            RefreshPrediction(PredictionHorizon);
+            events.Add(new RallyEvent { Type = RallyEventType.Hit, Slot = slot, Point = ball.Position, Shot = shot, ServeNumber = ServeNumber });
         }
 
         void StepBall(float dt)
         {
             BallContact contact = BallSimulator.Step(ref ball, physics, dt);
+            bool rally = State == SessionState.Rally;
             switch (contact.Type)
             {
                 case BallContactType.Ground:
-                    if (State == SessionState.Rally) referee.OnGround(contact.Point);
+                    if (rally) referee.OnGround(contact.Point);
                     events.Add(new RallyEvent { Type = RallyEventType.Bounce, Point = contact.Point, ImpactSpeed = contact.ImpactSpeed });
                     break;
                 case BallContactType.Net:
-                    if (State == SessionState.Rally) referee.OnNetFabric();
+                    if (rally) referee.OnNetFabric();
                     events.Add(new RallyEvent { Type = RallyEventType.NetFabric, Point = contact.Point, ImpactSpeed = contact.ImpactSpeed });
                     break;
                 case BallContactType.NetCord:
+                    if (rally) referee.OnNetCord();
                     events.Add(new RallyEvent { Type = RallyEventType.NetCord, Point = contact.Point, ImpactSpeed = contact.ImpactSpeed });
                     break;
             }
         }
 
-        void EndPoint()
+        void CallServe(ServeCall call)
+        {
+            if (call == ServeCall.Fault && ServeNumber == 2)
+            {
+                events.Add(new RallyEvent { Type = RallyEventType.Fault, Slot = Server, ServeNumber = 2 });
+                EndPoint(Receiver, PointEndReason.DoubleFault);
+                return;
+            }
+
+            events.Add(new RallyEvent { Type = call == ServeCall.Fault ? RallyEventType.Fault : RallyEventType.Let, Slot = Server, ServeNumber = ServeNumber });
+            if (call == ServeCall.Fault) ServeNumber = 2;
+            State = SessionState.ServeCalled;
+            stateEndsAt = Time + ServeCallDuration;
+            trajectory.Clear();
+        }
+
+        void EndPoint(PlayerSlot winner, PointEndReason reason)
         {
             State = SessionState.PointOver;
-            pointOverAt = Time + PointOverDuration;
-            points[(int)referee.Winner]++;
+            stateEndsAt = Time + PointOverDuration;
+            points[(int)winner]++;
+            ScoreChange change = Score.AddPoint(winner);
             trajectory.Clear();
-            events.Add(new RallyEvent { Type = RallyEventType.PointEnded, Slot = referee.Winner, Reason = referee.Reason });
+            events.Add(new RallyEvent { Type = RallyEventType.PointEnded, Slot = winner, Reason = reason, ScoreChange = change });
         }
 
-        void StartPoint(PlayerSlot server)
+        void StartPoint()
         {
-            Server = server;
+            ServeNumber = 1;
+            StartServe();
+        }
+
+        /// <summary>Both players to their places for a first or second serve, from the side the score says.</summary>
+        void StartServe()
+        {
             State = SessionState.AwaitingServe;
             trajectory.Clear();
+            serveContactTime = float.NaN;
             BallRevision++;
 
-            float serverForward = CourtGeometry.ForwardSign(server);
-            float serverSide = -serverForward;
-            float serverZ = -serverForward * (CourtGeometry.HalfLength + ServerBehindBaseline);
-            agents[(int)server].ResetForPoint(new Vector3(serverSide * ServerOffsetX, 0f, serverZ));
+            bool deuce = Score.DeuceSide;
+            ServeBox = CourtGeometry.ServiceBoxFor(Server, deuce);
+            float side = CourtGeometry.ServeSideSign(Server, deuce);
 
-            PlayerSlot receiver = CourtGeometry.Opponent(server);
-            float receiverZ = -CourtGeometry.ForwardSign(receiver) * (CourtGeometry.HalfLength + ReceiverBehindBaseline);
-            agents[(int)receiver].ResetForPoint(new Vector3(serverSide * ReceiverOffsetX, 0f, receiverZ));
+            float serverZ = -CourtGeometry.ForwardSign(Server) * (CourtGeometry.HalfLength + ServerBehindBaseline);
+            agents[(int)Server].ResetForPoint(new Vector3(side * ServerOffsetX, 0f, serverZ));
 
-            HoldBallAtServer();
+            float receiverZ = -CourtGeometry.ForwardSign(Receiver) * (CourtGeometry.HalfLength + ReceiverBehindBaseline);
+            agents[(int)Receiver].ResetForPoint(new Vector3(-side * ReceiverOffsetX, 0f, receiverZ));
+
+            HoldBallInServersHand();
         }
 
-        /// <summary>In the air at the server's forehand, where the drop will start.</summary>
-        void HoldBallAtServer()
+        /// <summary>Before the toss the server may walk along the baseline, but only on their half of it.</summary>
+        void KeepServerBehindTheirHalfOfTheBaseline()
         {
-            PlayerAgent agent = agents[(int)Server];
-            Vector3 offset = StrikeZone.Offset(Server, HandSide.Forehand, ServeHeight, shotTuning);
-            ball = new BallState { Position = agent.Position + offset + Vector3.up * ServeHeight };
+            float side = CourtGeometry.ServeSideSign(Server, Score.DeuceSide);
+            PlayerMovement movement = agents[(int)Server].Movement;
+            float x = Mathf.Clamp(movement.Position.x * side, ServerMinX, ServerMaxX) * side;
+            if (!Mathf.Approximately(x, movement.Position.x)) movement.Teleport(new Vector3(x, 0f, movement.Position.z));
         }
 
-        void DropServe()
+        Vector3 ServerLocal(Vector3 local)
         {
-            State = SessionState.Rally;
-            referee.BeginFeed(Server);
-            RefreshPrediction();
-            events.Add(new RallyEvent { Type = RallyEventType.ServeDropped, Slot = Server, Point = ball.Position });
+            PlayerAgent server = agents[(int)Server];
+            return server.Position + StrikeZone.Right(Server) * local.x + StrikeZone.Forward(Server) * local.y + Vector3.up * local.z;
         }
 
-        void RefreshPrediction()
+        void HoldBallInServersHand() => ball = new BallState { Position = ServerLocal(shotTuning.TossStart) };
+
+        /// <summary>
+        /// Throws the ball so it peaks at the toss apex and drops through the contact point. The prediction then
+        /// gives the exact moment it passes the contact height, which both the timing grade and bots use.
+        /// </summary>
+        void Toss()
+        {
+            Vector3 start = ServerLocal(shotTuning.TossStart);
+            Vector3 contact = ServerLocal(shotTuning.ServeContact);
+            float g = physics.Gravity;
+            float rise = Mathf.Max(shotTuning.TossApex - start.y, 0.1f);
+            float fall = Mathf.Max(shotTuning.TossApex - contact.y, 0.01f);
+            float up = Mathf.Sqrt(2f * g * rise);
+            float flightTime = up / g + Mathf.Sqrt(2f * fall / g);
+            Vector3 across = new Vector3(contact.x - start.x, 0f, contact.z - start.z) / flightTime;
+
+            ball = new BallState { Position = start, Velocity = across + Vector3.up * up };
+            State = SessionState.Toss;
+            RefreshPrediction(TossPredictionHorizon);
+
+            serveContactTime = Time + flightTime;
+            foreach (TrajectorySample sample in trajectory.Samples)
+            {
+                if (sample.State.Velocity.y < 0f && sample.State.Position.y <= shotTuning.ServeContact.z)
+                {
+                    serveContactTime = sample.Time;
+                    break;
+                }
+            }
+            events.Add(new RallyEvent { Type = RallyEventType.ServeToss, Slot = Server, Point = start, ServeNumber = ServeNumber });
+        }
+
+        void RefreshPrediction(float horizon)
         {
             BallRevision++;
-            trajectory.Compute(ball, Time, physics, TickDt, PredictionHorizon);
+            trajectory.Compute(ball, Time, physics, TickDt, horizon);
         }
     }
 }

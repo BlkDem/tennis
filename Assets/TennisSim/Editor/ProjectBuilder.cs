@@ -57,17 +57,26 @@ namespace TennisSim.EditorTools
         static readonly string[] LoopingClips =
         {
             "Idle", "Ready", "Walk", "Run", "Sprint", "Backpedal", "StrafeLeft", "StrafeRight",
-            "Forehand_Prep", "Backhand_Prep", "Volley_Prep", "Smash_Prep",
+            "Forehand_Prep", "Backhand_Prep", "ForehandSlice_Prep", "BackhandSlice_Prep", "Volley_Prep", "Smash_Prep",
+            "Serve_Ready",
         };
 
         static readonly string[] UpperBodyStates =
         {
             "Forehand_Prep", "Forehand_Swing", "Backhand_Prep", "Backhand_Swing",
+            "ForehandSlice_Prep", "ForehandSlice_Swing", "BackhandSlice_Prep", "BackhandSlice_Swing",
             "Volley_Prep", "Volley_Swing", "Smash_Prep", "Smash_Swing", "Recovery",
         };
 
+        /// <summary>Whole-body serve states. The animation controller moves between them, so they have no transitions.</summary>
+        static readonly string[] ServeStates = { "Serve_Ready", "Serve_Toss", "Serve_Swing" };
+
         static readonly string[] AllClips = LoopingClips
-            .Concat(new[] { "Forehand_Swing", "Backhand_Swing", "Volley_Swing", "Smash_Swing", "Serve", "Recovery", "Celebrate", "PointLost" })
+            .Concat(new[]
+            {
+                "Forehand_Swing", "Backhand_Swing", "ForehandSlice_Swing", "BackhandSlice_Swing", "Volley_Swing", "Smash_Swing",
+                "Serve_Toss", "Serve_Swing", "Recovery", "Celebrate", "PointLost",
+            })
             .ToArray();
 
         static ProjectBuilder()
@@ -127,6 +136,14 @@ namespace TennisSim.EditorTools
             PlayerSettings.productName = "Tennis Simulator";
             PlayerSettings.colorSpace = ColorSpace.Linear;
 
+            // Fullscreen at the monitor's own resolution; Alt+Enter switches to a resizable window.
+            PlayerSettings.fullScreenMode = FullScreenMode.FullScreenWindow;
+            PlayerSettings.defaultIsNativeResolution = true;
+            PlayerSettings.resizableWindow = true;
+            PlayerSettings.allowFullscreenSwitch = true;
+            PlayerSettings.defaultScreenWidth = 1920;
+            PlayerSettings.defaultScreenHeight = 1080;
+
             Object[] playerSettings = AssetDatabase.LoadAllAssetsAtPath("ProjectSettings/ProjectSettings.asset");
             if (playerSettings.Length == 0) return;
 
@@ -154,8 +171,10 @@ namespace TennisSim.EditorTools
             }
 
             urp.msaaSampleCount = 4;
-            urp.shadowDistance = 70f;
-            urp.shadowCascadeCount = 2;
+            // Sharp player shadows: the court needs no more than ~45 m of shadow, split over high-resolution cascades.
+            urp.shadowDistance = 45f;
+            urp.shadowCascadeCount = 4;
+            urp.mainLightShadowmapResolution = 4096;
             EditorUtility.SetDirty(urp);
 
             GraphicsSettings.defaultRenderPipeline = urp;
@@ -460,13 +479,22 @@ namespace TennisSim.EditorTools
             engage.duration = 0.15f;
             engage.AddCondition(AnimatorConditionMode.If, 0f, "Engaged");
 
-            foreach (string name in new[] { "Celebrate", "PointLost", "Serve" })
+            foreach (string name in new[] { "Celebrate", "PointLost" })
             {
                 AnimatorState state = AddState(body, name, clips);
                 AnimatorStateTransition done = state.AddTransition(locomotion);
                 done.hasExitTime = true;
                 done.exitTime = 0.95f;
                 done.duration = 0.2f;
+            }
+            foreach (string name in ServeStates)
+            {
+                AnimatorState state = AddState(body, name, clips);
+                if (name == "Serve_Swing")
+                {
+                    state.speedParameter = "SwingSpeed";
+                    state.speedParameterActive = true;
+                }
             }
 
             var upperLayer = new AnimatorControllerLayer

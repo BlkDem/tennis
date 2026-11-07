@@ -15,6 +15,7 @@ namespace TennisSim.Simulation
         const float ContactCommitMargin = 0.25f;
 
         readonly PlayerMovementTuning movementTuning;
+        readonly ShotTuning shotTuning;
 
         bool recovering;
         bool committedToContact;
@@ -24,6 +25,7 @@ namespace TennisSim.Simulation
         public PlayerSlot Slot { get; }
         public PlayerMovement Movement { get; }
         public PlayerShotController Shot { get; }
+        public ServeController Serve { get; }
         public IPlayerIntentSource IntentSource { get; set; }
         /// <summary>
         /// When on, the stick still moves a preparing player, and only at the last moment, or with the stick
@@ -32,21 +34,22 @@ namespace TennisSim.Simulation
         public bool AutoPositioning { get; set; } = true;
 
         public Vector3 Position => Movement.Position;
-        /// <summary>The player asked to put the ball in play this tick.</summary>
-        public bool ServeRequested { get; private set; }
 
         public PlayerAgent(PlayerSlot slot, PlayerMovementTuning movementTuning, ShotTuning shotTuning, in BallPhysicsParams physics, Random rng)
         {
             Slot = slot;
             this.movementTuning = movementTuning;
+            this.shotTuning = shotTuning;
             Movement = new PlayerMovement(slot, movementTuning);
             Shot = new PlayerShotController(slot, shotTuning, movementTuning, physics, rng);
+            Serve = new ServeController(slot, shotTuning, physics, rng);
         }
 
         public void ResetForPoint(Vector3 position)
         {
             Movement.Teleport(position);
             Shot.ResetForPoint();
+            Serve.Reset();
             recovering = false;
             committedToContact = false;
             aim = Vector2.zero;
@@ -55,9 +58,9 @@ namespace TennisSim.Simulation
         public ShotResult? Tick(in PlayerPerception p, float dt)
         {
             PlayerIntent intent = IntentSource != null ? IntentSource.ReadIntent(p) : default;
-
-            ServeRequested = p.AwaitingServe && p.IsServer && intent.Pressed.HasValue;
             UpdateAim(intent);
+
+            if (p.IsServer && (p.AwaitingServe || p.Tossing)) return TickServing(p, intent, dt);
 
             float sprintSpeed = intent.Sprint ? movementTuning.SprintSpeed : movementTuning.RunSpeed;
             bool stickActive = intent.Move.sqrMagnitude > StickActive * StickActive;
@@ -69,9 +72,21 @@ namespace TennisSim.Simulation
             if (intent.Pressed.HasValue || stickActive) recovering = false;
             if (shot.HasValue) recovering = true;
 
-            Vector3 desired = p.AwaitingServe && p.IsServer ? Vector3.zero : DesiredVelocity(intent, sprintSpeed, steering);
-            Movement.Tick(desired, dt);
+            Movement.Tick(DesiredVelocity(intent, sprintSpeed, steering), dt);
             return shot;
+        }
+
+        /// <summary>Before the toss the stick walks the server along the baseline; once the ball is up they stand still.</summary>
+        ShotResult? TickServing(in PlayerPerception p, in PlayerIntent intent, float dt)
+        {
+            ShotResult? serve = Serve.Tick(p, intent, aim);
+
+            bool walking = p.AwaitingServe && Serve.Phase == ServePhase.Idle && Mathf.Abs(intent.Move.x) > StickActive;
+            Vector3 desired = walking ? new Vector3(Mathf.Clamp(intent.Move.x, -1f, 1f) * shotTuning.ServerMoveSpeed, 0f, 0f) : Vector3.zero;
+            Movement.Tick(desired, dt);
+
+            recovering = serve.HasValue;
+            return serve;
         }
 
         /// <summary>Latches once the player has to start running to make the contact, so control does not flicker.</summary>
