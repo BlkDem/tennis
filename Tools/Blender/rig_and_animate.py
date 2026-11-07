@@ -1215,4 +1215,6 @@ def main():
     log("done")
 
 
-main()
+# make_crowd_atlas.py imports this module for its pose solver.
+if __name__ == "__main__":
+    main()

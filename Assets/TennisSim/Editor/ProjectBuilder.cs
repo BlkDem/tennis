@@ -30,6 +30,11 @@ namespace TennisSim.EditorTools
         const string SceneDir = Root + "/Scenes";
         const string PlayerArtDir = Root + "/Art/Player";
         const string CourtArtDir = Root + "/Art/Court";
+        const string StadiumArtDir = Root + "/Art/Stadium";
+        const string StadiumModelPath = StadiumArtDir + "/Stadium.fbx";
+        const string StadiumLayoutPath = StadiumArtDir + "/Stadium_Layout.json";
+        const string CrowdShaderPath = Root + "/Shaders/Crowd.shader";
+        const string CrowdMeshPath = GeneratedDir + "/Crowd.mesh.asset";
         const string ScenePath = SceneDir + "/Prototype.unity";
         const string UrpAssetPath = SettingsDir + "/URP.asset";
         const string UrpRendererPath = SettingsDir + "/URP_Renderer.asset";
@@ -51,8 +56,11 @@ namespace TennisSim.EditorTools
         const float NetTapeHeight = 0.06f;
         const float BallVisualScale = 1.4f;
 
-        const float FenceHeight = 3f;
-        const float FenceThickness = 0.2f;
+        /// <summary>Share of seats with someone in them.</summary>
+        const float CrowdOccupancy = 0.88f;
+        /// <summary>A spectator card's size; must match CELL_METRES_HIGH in Tools/Blender/make_crowd_atlas.py.</summary>
+        static readonly Vector2 CrowdCardSize = new Vector2(1.2f, 2.4f);
+        const int CrowdPoses = 5;
 
         static readonly string[] LoopingClips =
         {
@@ -171,8 +179,8 @@ namespace TennisSim.EditorTools
             }
 
             urp.msaaSampleCount = 4;
-            // Sharp player shadows: the court needs no more than ~45 m of shadow, split over high-resolution cascades.
-            urp.shadowDistance = 45f;
+            // Sharp player shadows near the camera, and the stands' shadows out to the far end, over four high-resolution cascades.
+            urp.shadowDistance = 70f;
             urp.shadowCascadeCount = 4;
             urp.mainLightShadowmapResolution = 4096;
             EditorUtility.SetDirty(urp);
@@ -201,12 +209,19 @@ namespace TennisSim.EditorTools
             ConfigureTexture($"{CourtArtDir}/Court_Mask.png", false, false, 2048, anisotropy: 4);
             ConfigureTexture($"{CourtArtDir}/Court_Detail_Albedo.png", false, false, 1024, TextureWrapMode.Repeat, anisotropy: 4);
             ConfigureTexture($"{CourtArtDir}/Court_Detail_Normal.png", false, true, 1024, TextureWrapMode.Repeat, anisotropy: 4);
+            ConfigureTexture($"{StadiumArtDir}/Stadium_Boards.png", true, false, 2048, anisotropy: 8);
+            ConfigureTexture($"{StadiumArtDir}/Concrete_BaseColor.png", true, false, 512, TextureWrapMode.Repeat, anisotropy: 4);
+            // Mipmaps keep each spectator's outline as the cards shrink into the distance.
+            ConfigureTexture($"{StadiumArtDir}/Crowd_Atlas.png", true, false, 1024, keepAlpha: true, preserveCoverage: true);
+            ConfigureTexture($"{StadiumArtDir}/Crowd_Mask.png", false, false, 1024);
 
             ConfigurePlayerModel();
             ConfigureBallModel();
+            ConfigureStaticModel(StadiumModelPath);
         }
 
-        static void ConfigureTexture(string path, bool sRgb, bool normalMap, int maxSize, TextureWrapMode wrap = TextureWrapMode.Clamp, int anisotropy = 1, bool keepAlpha = false)
+        static void ConfigureTexture(string path, bool sRgb, bool normalMap, int maxSize, TextureWrapMode wrap = TextureWrapMode.Clamp,
+            int anisotropy = 1, bool keepAlpha = false, bool preserveCoverage = false)
         {
             var importer = AssetImporter.GetAtPath(path) as TextureImporter;
             if (importer == null) throw new FileNotFoundException("Texture not found: " + path);
@@ -218,6 +233,20 @@ namespace TennisSim.EditorTools
             importer.anisoLevel = anisotropy;
             importer.mipmapEnabled = true;
             importer.alphaIsTransparency = keepAlpha;
+            importer.npotScale = TextureImporterNPOTScale.None;
+            importer.mipMapsPreserveCoverage = preserveCoverage;
+            importer.alphaTestReferenceValue = 0.5f;
+            importer.SaveAndReimport();
+        }
+
+        static void ConfigureStaticModel(string path)
+        {
+            var importer = AssetImporter.GetAtPath(path) as ModelImporter;
+            if (importer == null) throw new FileNotFoundException("Model not found: " + path);
+            importer.animationType = ModelImporterAnimationType.None;
+            importer.importAnimation = false;
+            importer.materialImportMode = ModelImporterMaterialImportMode.None;
+            importer.indexFormat = ModelImporterIndexFormat.Auto;
             importer.SaveAndReimport();
         }
 
@@ -268,16 +297,34 @@ namespace TennisSim.EditorTools
 
         sealed class Materials
         {
-            public Material Ground, Court, Fence, Post, NetFabric, NetTape;
+            public Material Ground, Court, Post, NetFabric, NetTape;
             public Material Ball, BallShadow, LandingMarker;
             public Material NearPlayer, FarPlayer, Racket, RacketStrings;
+            public Material Crowd;
+            /// <summary>Stadium materials by the name of the FBX part they belong to.</summary>
+            public Dictionary<string, Material> Stadium;
         }
 
         static Materials BuildMaterials() => new Materials
         {
-            Ground = Lit("Ground", new Color(0.13f, 0.30f, 0.20f), 0.1f),
+            Ground = Lit("Ground", new Color(0.32f, 0.32f, 0.31f), 0.1f),
             Court = CourtSurface(),
-            Fence = Lit("Fence", new Color(0.035f, 0.11f, 0.075f), 0.15f),
+            Stadium = new Dictionary<string, Material>
+            {
+                ["Stadium_Concrete"] = Concrete("StadiumConcrete", new Color(0.62f, 0.62f, 0.6f)),
+                ["Stadium_Steps"] = Concrete("StadiumSteps", new Color(0.72f, 0.72f, 0.7f)),
+                ["Stadium_Facade"] = Concrete("StadiumFacade", new Color(0.55f, 0.56f, 0.56f)),
+                ["Stadium_Railing"] = Lit("StadiumRailing", new Color(0.05f, 0.17f, 0.11f), 0.3f),
+                ["Stadium_Accent"] = Lit("StadiumAccent", new Color(0.95f, 0.75f, 0.1f), 0.3f),
+                ["Stadium_Boards"] = Board(),
+                ["Seats_Blue"] = Lit("SeatsBlue", new Color(0.04f, 0.11f, 0.32f), 0.55f),
+                ["Seats_White"] = Lit("SeatsWhite", new Color(0.86f, 0.87f, 0.88f), 0.55f),
+                ["Furniture_Metal"] = Lit("FurnitureMetal", new Color(0.05f, 0.2f, 0.13f), 0.45f),
+                ["Furniture_Seat"] = Lit("FurnitureSeat", new Color(0.9f, 0.9f, 0.88f), 0.4f),
+                ["Scoreboard_Frame"] = Lit("ScoreboardFrame", new Color(0.12f, 0.13f, 0.14f), 0.5f),
+                ["Scoreboard_Screen"] = Lit("ScoreboardScreen", new Color(0.015f, 0.02f, 0.03f), 0.8f),
+            },
+            Crowd = CrowdMaterial(),
             Post = Lit("NetPost", new Color(0.12f, 0.14f, 0.13f), 0.5f),
             NetFabric = Transparent("NetFabric", NetTexture(), Color.white),
             NetTape = DoubleSided(Lit("NetTape", Color.white, 0.2f)),
@@ -312,6 +359,44 @@ namespace TennisSim.EditorTools
             material.SetColor("_BaseColor", Color.white);
             material.SetTexture("_BaseMap", Load<Texture2D>($"{directory}/{baseMap}.png"));
             AddSurfaceMaps(material, $"{directory}/{normalMap}.png", $"{directory}/{mask}.png");
+            EditorUtility.SetDirty(material);
+            return material;
+        }
+
+        /// <summary>The stadium's painted concrete: one light tiling texture, tinted per surface. The FBX's UVs are in 2 m units.</summary>
+        static Material Concrete(string name, Color tint)
+        {
+            Material material = LoadOrCreate(name, "Universal Render Pipeline/Lit");
+            material.SetTexture("_BaseMap", Load<Texture2D>($"{StadiumArtDir}/Concrete_BaseColor.png"));
+            material.SetColor("_BaseColor", tint);
+            material.SetFloat("_Smoothness", 0.12f);
+            EditorUtility.SetDirty(material);
+            return material;
+        }
+
+        static Material Board()
+        {
+            Material material = LoadOrCreate("StadiumBoards", "Universal Render Pipeline/Lit");
+            material.SetTexture("_BaseMap", Load<Texture2D>($"{StadiumArtDir}/Stadium_Boards.png"));
+            material.SetColor("_BaseColor", Color.white);
+            material.SetFloat("_Smoothness", 0.35f);
+            EditorUtility.SetDirty(material);
+            return material;
+        }
+
+        static Material CrowdMaterial()
+        {
+            string path = $"{MaterialDir}/Crowd.mat";
+            var material = AssetDatabase.LoadAssetAtPath<Material>(path);
+            if (material == null)
+            {
+                material = new Material(Load<Shader>(CrowdShaderPath));
+                AssetDatabase.CreateAsset(material, path);
+            }
+            material.SetTexture("_Atlas", Load<Texture2D>($"{StadiumArtDir}/Crowd_Atlas.png"));
+            material.SetTexture("_Mask", Load<Texture2D>($"{StadiumArtDir}/Crowd_Mask.png"));
+            material.SetVector("_Size", CrowdCardSize);
+            material.SetVector("_Grid", new Vector4(CrowdPoses, 2f, 0f, 0f));
             EditorUtility.SetDirty(material);
             return material;
         }
@@ -561,7 +646,6 @@ namespace TennisSim.EditorTools
 
             RenderSettings.ambientMode = AmbientMode.Flat;
             RenderSettings.ambientLight = new Color(0.48f, 0.5f, 0.54f);
-            RenderSettings.skybox = null;
 
             var sun = new GameObject("Sun").AddComponent<Light>();
             sun.type = LightType.Directional;
@@ -569,6 +653,8 @@ namespace TennisSim.EditorTools
             sun.color = new Color(1f, 0.97f, 0.92f);
             sun.shadows = LightShadows.Soft;
             sun.transform.rotation = Quaternion.Euler(58f, -35f, 0f);
+            RenderSettings.sun = sun;
+            RenderSettings.skybox = DaySky();
 
             BuildCourt(m);
 
@@ -589,12 +675,26 @@ namespace TennisSim.EditorTools
             game.nearPlayer = near;
             game.farPlayer = far;
 
+            BuildStadium(m, game);
+
             new GameObject("PrototypeOverlay").AddComponent<PrototypeOverlay>().game = game;
 
             BuildCamera(near, ball);
 
             EditorSceneManager.SaveScene(scene, ScenePath);
             EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(ScenePath, true) };
+        }
+
+        static Material DaySky()
+        {
+            Material sky = LoadOrCreate("DaySky", "Skybox/Procedural");
+            sky.SetFloat("_SunSize", 0.035f);
+            sky.SetFloat("_AtmosphereThickness", 0.85f);
+            sky.SetColor("_SkyTint", new Color(0.45f, 0.55f, 0.7f));
+            sky.SetColor("_GroundColor", new Color(0.35f, 0.36f, 0.36f));
+            sky.SetFloat("_Exposure", 1.25f);
+            EditorUtility.SetDirty(sky);
+            return sky;
         }
 
         static T LoadOrCreateConfig<T>(string name) where T : ScriptableObject
@@ -611,9 +711,8 @@ namespace TennisSim.EditorTools
         {
             Transform court = new GameObject("Court").transform;
 
-            Slab("Ground", court, m.Ground, new Vector3(80f, 0.1f, 90f), new Vector3(0f, -0.05f, 0f));
+            Slab("Ground", court, m.Ground, new Vector3(120f, 0.1f, 140f), new Vector3(0f, -0.05f, 0f));
             BuildCourtSurface(court, m.Court);
-            BuildFences(court, m.Fence);
 
             foreach (float sign in new[] { -1f, 1f })
             {
@@ -652,16 +751,145 @@ namespace TennisSim.EditorTools
             surface.AddComponent<MeshRenderer>().sharedMaterial = material;
         }
 
-        /// <summary>Windscreens on three sides. The near end stays open because the camera looks in over it.</summary>
-        static void BuildFences(Transform parent, Material material)
-        {
-            float halfWidth = SurfaceWidth * 0.5f + FenceThickness * 0.5f;
-            float halfLength = SurfaceLength * 0.5f + FenceThickness * 0.5f;
-            float height = FenceHeight * 0.5f;
+        // ---------------------------------------------------------------- Stadium
 
-            Slab("Fence Far", parent, material, new Vector3(SurfaceWidth + FenceThickness * 2f, FenceHeight, FenceThickness), new Vector3(0f, height, halfLength));
-            Slab("Fence Left", parent, material, new Vector3(FenceThickness, FenceHeight, SurfaceLength), new Vector3(-halfWidth, height, 0f));
-            Slab("Fence Right", parent, material, new Vector3(FenceThickness, FenceHeight, SurfaceLength), new Vector3(halfWidth, height, 0f));
+        /// <summary>What Tools/Blender/make_stadium.py writes next to the model.</summary>
+        [System.Serializable]
+        sealed class StadiumLayout
+        {
+            public int seatStride;
+            /// <summary>Per seat: x, y, z of the seat on its row's floor, then the x and z of the way it faces.</summary>
+            public float[] seats;
+            public float[] scoreboardCenter;
+            public float scoreboardWidth;
+            public float scoreboardHeight;
+        }
+
+        static void BuildStadium(Materials m, GameManager game)
+        {
+            var stadium = (GameObject)PrefabUtility.InstantiatePrefab(Load<GameObject>(StadiumModelPath));
+            stadium.name = "Stadium";
+            foreach (MeshRenderer renderer in stadium.GetComponentsInChildren<MeshRenderer>())
+            {
+                if (!m.Stadium.TryGetValue(renderer.name, out Material material))
+                    throw new System.ArgumentException("Unexpected stadium part: " + renderer.name);
+                renderer.sharedMaterial = material;
+                // The parapet's sponsor boards stand right behind the court; their shadow would only be noise.
+                if (renderer.name == "Stadium_Accent") renderer.shadowCastingMode = ShadowCastingMode.Off;
+            }
+            GameObjectUtility.SetStaticEditorFlags(stadium, StaticEditorFlags.BatchingStatic);
+            foreach (Transform child in stadium.GetComponentsInChildren<Transform>())
+                GameObjectUtility.SetStaticEditorFlags(child.gameObject, StaticEditorFlags.BatchingStatic);
+
+            StadiumLayout layout = JsonUtility.FromJson<StadiumLayout>(Load<TextAsset>(StadiumLayoutPath).text);
+            BuildCrowd(layout, m.Crowd);
+            BuildScoreboard(layout, game);
+        }
+
+        /// <summary>
+        /// One mesh for the whole crowd. Every spectator is four vertices on their seat; the crowd shader turns
+        /// them into a card facing the camera. Who turns up, and what they wear, is fixed per seat.
+        /// </summary>
+        static void BuildCrowd(StadiumLayout layout, Material material)
+        {
+            var random = new System.Random(20261107);
+            var positions = new List<Vector3>();
+            var normals = new List<Vector3>();
+            var corners = new List<Vector2>();
+            var seeds = new List<Vector4>();
+            var triangles = new List<int>();
+            Vector2[] cardCorners = { new Vector2(-0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0.5f, 1f), new Vector2(-0.5f, 1f) };
+
+            int stride = layout.seatStride;
+            for (int i = 0; i + stride <= layout.seats.Length; i += stride)
+            {
+                if (random.NextDouble() > CrowdOccupancy) continue;
+                var seat = new Vector3(layout.seats[i], layout.seats[i + 1], layout.seats[i + 2]);
+                var facing = new Vector3(layout.seats[i + 3], 0f, layout.seats[i + 4]);
+                var seed = new Vector4((float)random.NextDouble(), (float)random.NextDouble(), (float)random.NextDouble(), (float)random.NextDouble());
+
+                int start = positions.Count;
+                foreach (Vector2 corner in cardCorners)
+                {
+                    positions.Add(seat);
+                    normals.Add(facing);
+                    corners.Add(corner);
+                    seeds.Add(seed);
+                }
+                triangles.AddRange(new[] { start, start + 2, start + 1, start, start + 3, start + 2 });
+            }
+
+            AssetDatabase.DeleteAsset(CrowdMeshPath);
+            var mesh = new Mesh { name = "Crowd", indexFormat = positions.Count > 65535 ? IndexFormat.UInt32 : IndexFormat.UInt16 };
+            mesh.SetVertices(positions);
+            mesh.SetNormals(normals);
+            mesh.SetUVs(0, corners);
+            mesh.SetUVs(1, seeds);
+            mesh.SetTriangles(triangles, 0);
+            // The vertices only mark seats: grow the bounds by a card so the crowd is never culled while in view.
+            mesh.RecalculateBounds();
+            Bounds bounds = mesh.bounds;
+            bounds.Expand(new Vector3(CrowdCardSize.x, CrowdCardSize.y * 2f, CrowdCardSize.x));
+            mesh.bounds = bounds;
+            AssetDatabase.CreateAsset(mesh, CrowdMeshPath);
+
+            var crowd = new GameObject("Crowd");
+            crowd.AddComponent<MeshFilter>().sharedMesh = mesh;
+            var renderer = crowd.AddComponent<MeshRenderer>();
+            renderer.sharedMaterial = material;
+            renderer.shadowCastingMode = ShadowCastingMode.Off;
+            renderer.receiveShadows = false;
+            crowd.AddComponent<CrowdController>();
+            Debug.Log($"[Tennis] Crowd: {positions.Count / 4} spectators in {layout.seats.Length / stride} seats.");
+        }
+
+        /// <summary>Text on the scoreboard's screen, laid out as columns: name, sets, games, points.</summary>
+        static void BuildScoreboard(StadiumLayout layout, GameManager game)
+        {
+            var root = new GameObject("Scoreboard Display");
+            root.transform.position = new Vector3(layout.scoreboardCenter[0], layout.scoreboardCenter[1], layout.scoreboardCenter[2]);
+            var scoreboard = root.AddComponent<Scoreboard>();
+            scoreboard.game = game;
+
+            float w = layout.scoreboardWidth;
+            float h = layout.scoreboardHeight;
+            float rowHeight = h * 0.3f;
+            var white = new Color(0.95f, 0.95f, 0.92f);
+            var yellow = new Color(1f, 0.82f, 0.2f);
+            for (int i = 0; i < 2; i++)
+            {
+                float y = h * 0.5f - h * 0.1f - rowHeight * (i + 0.5f);
+                float text = rowHeight * 0.75f;
+                scoreboard.serving[i] = ScoreText(root.transform, "Serving", new Vector3(-w * 0.45f, y), text * 0.6f, TextAnchor.MiddleCenter, yellow);
+                scoreboard.names[i] = ScoreText(root.transform, "Name", new Vector3(-w * 0.41f, y), text, TextAnchor.MiddleLeft, white);
+                scoreboard.sets[i] = ScoreText(root.transform, "Sets", new Vector3(w * 0.17f, y), text, TextAnchor.MiddleCenter, white);
+                scoreboard.games[i] = ScoreText(root.transform, "Games", new Vector3(w * 0.28f, y), text, TextAnchor.MiddleCenter, white);
+                scoreboard.points[i] = ScoreText(root.transform, "Points", new Vector3(w * 0.41f, y), text, TextAnchor.MiddleCenter, yellow);
+            }
+            scoreboard.info = ScoreText(root.transform, "Info", new Vector3(0f, -h * 0.36f), rowHeight * 0.5f, TextAnchor.MiddleCenter, yellow);
+        }
+
+        static TextMesh ScoreText(Transform parent, string name, Vector3 localPosition, float height, TextAnchor anchor, Color colour)
+        {
+            const int FontSize = 96;
+            var textObject = new GameObject(name);
+            textObject.transform.SetParent(parent, false);
+            textObject.transform.localPosition = localPosition;
+            var text = textObject.AddComponent<TextMesh>();
+            Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            text.font = font;
+            text.fontSize = FontSize;
+            text.fontStyle = FontStyle.Bold;
+            // A TextMesh line is about a tenth of fontSize * characterSize units high.
+            text.characterSize = height * 10f / FontSize;
+            text.anchor = anchor;
+            text.alignment = anchor == TextAnchor.MiddleLeft ? TextAlignment.Left : TextAlignment.Center;
+            text.color = colour;
+            text.text = "";
+            var renderer = textObject.GetComponent<MeshRenderer>();
+            renderer.sharedMaterial = font.material;
+            renderer.shadowCastingMode = ShadowCastingMode.Off;
+            return text;
         }
 
         static void Slab(string name, Transform parent, Material material, Vector3 size, Vector3 position)
@@ -814,7 +1042,7 @@ namespace TennisSim.EditorTools
         {
             var cameraObject = new GameObject("Main Camera") { tag = "MainCamera" };
             var camera = cameraObject.AddComponent<Camera>();
-            camera.clearFlags = CameraClearFlags.SolidColor;
+            camera.clearFlags = CameraClearFlags.Skybox;
             camera.backgroundColor = new Color(0.56f, 0.72f, 0.88f);
             camera.farClipPlane = 200f;
             cameraObject.AddComponent<AudioListener>();

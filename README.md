@@ -1,6 +1,6 @@
 # Tennis Simulator
 
-3D-симулятор большого тенниса на Unity (URP, новая Input System, Cinemachine). Сейчас есть базовая игровая механика, подача по правилам с теннисным счётом, модели и анимации игроков, корт с текстурами.
+3D-симулятор большого тенниса на Unity (URP, новая Input System, Cinemachine). Сейчас есть базовая игровая механика, подача по правилам с теннисным счётом, модели и анимации игроков, выставочный корт (хард) на стадионе примерно на 5 тысяч мест со зрителями и табло.
 
 ## Запуск
 
@@ -72,7 +72,11 @@
 blender -b --factory-startup --python Tools/Blender/prepare_meshes.py -- <player.glb> <racket.glb> <work> Assets/TennisSim/Art/Player
 blender -b --factory-startup --python Tools/Blender/rig_and_animate.py -- <work> Assets/TennisSim/Art/Player
 blender -b --factory-startup --python Tools/Blender/make_court_textures.py -- Assets/TennisSim/Art/Court
+blender -b --factory-startup --python Tools/Blender/make_stadium.py -- Assets/TennisSim/Art/Stadium
+blender -b --factory-startup --python Tools/Blender/make_crowd_atlas.py -- <work> Assets/TennisSim/Art/Player Assets/TennisSim/Art/Stadium
 ```
+
+Пути лучше передавать абсолютные: Blender ищет относительные от своей рабочей папки. Атлас зрителей рендерится из `<work>/player_rigged.blend`, поэтому запускается после второго шага.
 
 После этого выполните **Tennis → Rebuild Project Assets and Scene**.
 

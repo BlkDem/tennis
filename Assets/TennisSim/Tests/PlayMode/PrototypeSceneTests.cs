@@ -23,6 +23,7 @@ namespace TennisSim.Tests
         float racketDistanceTotal;
         bool nearHitSeen;
         bool serveSaved;
+        float pointEndedAt = -1f;
 
         static Renderer RacketOf(PlayerController player) =>
             player.GetComponentsInChildren<SkinnedMeshRenderer>().First(r => r.name == "Racket");
@@ -41,12 +42,20 @@ namespace TennisSim.Tests
                     SaveCloseUp(game.nearPlayer.Position, "serve.png");
                 }
             }
-            if (e.Type == RallyEventType.PointEnded) points++;
+            if (e.Type == RallyEventType.PointEnded)
+            {
+                points++;
+                pointEndedAt = Time.time;
+            }
         }
 
         [UnitySetUp]
         public IEnumerator LoadScene()
         {
+            // A stale picture from an earlier run must never pass for this one.
+            if (Directory.Exists(ScreenshotDirectory))
+                foreach (string file in Directory.GetFiles(ScreenshotDirectory, "*.png")) File.Delete(file);
+
             yield return SceneManager.LoadSceneAsync(SceneName);
             game = Object.FindAnyObjectByType<GameManager>();
             Assert.That(game, Is.Not.Null, "The scene has no GameManager.");
@@ -57,6 +66,7 @@ namespace TennisSim.Tests
             racketDistanceTotal = 0f;
             nearHitSeen = false;
             serveSaved = false;
+            pointEndedAt = -1f;
             GameEvents.RallyEvent += OnRallyEvent;
             Time.timeScale = 3f;
         }
@@ -87,11 +97,22 @@ namespace TennisSim.Tests
             int inPlayFrames = 0;
             int visibleFrames = 0;
             bool savedScreenshot = false;
+            bool savedCheer = false;
+            float peakExcitement = 0f;
+            CrowdController crowd = Object.FindAnyObjectByType<CrowdController>();
+            Assert.That(crowd, Is.Not.Null, "the stadium has no crowd");
 
-            // Long rallies are normal, so keep watching until a point has finished, within reason.
-            while (Time.time - start < 45f || (points == 0 && Time.time - start < 240f))
+            // Long rallies are normal, so keep watching until a point has finished and the crowd has cheered, within reason.
+            while (Time.time - start < 45f || ((points == 0 || !savedCheer) && Time.time - start < 240f))
             {
                 yield return null;
+                peakExcitement = Mathf.Max(peakExcitement, crowd.Level);
+
+                if (!savedCheer && pointEndedAt > 0f && Time.time - pointEndedAt > 0.6f)
+                {
+                    savedCheer = true;
+                    SaveScreenshot(camera, "cheer.png");
+                }
 
                 if (game.Session.State != SessionState.Rally) continue;
 
@@ -123,6 +144,7 @@ namespace TennisSim.Tests
             Assert.That(hits, Is.GreaterThan(10), "the players should be hitting the ball");
             Assert.That(racketDistance, Is.LessThan(1.1f), "the swing animation should bring the racket to the ball");
             Assert.That(points, Is.GreaterThan(0), "points should finish");
+            Assert.That(peakExcitement, Is.GreaterThan(0.15f), "the crowd should react to points");
             Assert.That(visibleFrames / (float)inPlayFrames, Is.GreaterThan(0.97f), "the camera should keep the ball in view");
         }
 

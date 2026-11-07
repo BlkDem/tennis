@@ -37,3 +37,6 @@ crashlytics-build.properties
 # OS
 .DS_Store
 Thumbs.db
+
+# Python bytecode from the Blender scripts importing each other
+__pycache__/

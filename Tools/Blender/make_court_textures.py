@@ -29,9 +29,9 @@ BASELINE_WIDTH = 0.10
 LINE_WIDTH = 0.05
 CENTRE_MARK_LENGTH = 0.10
 
-# Linear colours of a classic two-tone acrylic court.
-PLAY_COLOUR = np.array([0.045, 0.135, 0.33])
-SURROUND_COLOUR = np.array([0.055, 0.20, 0.115])
+# Linear colours of a two-tone acrylic court: green inside the lines, terracotta run-off.
+PLAY_COLOUR = np.array([0.055, 0.19, 0.085])
+SURROUND_COLOUR = np.array([0.30, 0.085, 0.05])
 LINE_COLOUR = np.array([0.86, 0.87, 0.86])
 
 DETAIL_SIZE = 1024
