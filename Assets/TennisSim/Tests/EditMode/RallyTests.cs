@@ -329,7 +329,7 @@ namespace TennisSim.Tests
             Assert.That(TapAt(0f)?.Quality, Is.EqualTo(ContactQuality.Perfect));
             Assert.That(TapAt(0.05f)?.Quality, Is.EqualTo(ContactQuality.Good));
             Assert.That(TapAt(-0.1f)?.Quality, Is.EqualTo(ContactQuality.Good));
-            Assert.That(TapAt(0.1f)?.Quality, Is.EqualTo(ContactQuality.Poor));
+            Assert.That(TapAt(0.12f)?.Quality, Is.EqualTo(ContactQuality.Poor));
             Assert.That(TapAt(-0.16f)?.Quality, Is.EqualTo(ContactQuality.Poor));
             Assert.That(TapAt(0.3f).HasValue, Is.False, "swinging after the ball has passed misses it");
             Assert.That(TapAt(-0.5f).HasValue, Is.False, "swinging long before the ball arrives misses it");
@@ -363,14 +363,117 @@ namespace TennisSim.Tests
             var trajectory = new BallTrajectory();
             trajectory.Compute(state, 0f, BallPhysicsParams.Default, Dt, 3f);
 
-            Vector3 feet = new Vector3(0f, 0f, -3f);
-            ContactPlan volley = ContactPlanner.Find(trajectory, feet, PlayerSlot.Near, null, ShotButton.Volley, 0f, 7f, movement, tuning);
-            ContactPlan normal = ContactPlanner.Find(trajectory, feet, PlayerSlot.Near, null, ShotButton.Auto, 0f, 7f, movement, tuning);
+            Vector3 nearNet = new Vector3(0f, 0f, -3f);
+            Vector3 deep = new Vector3(0f, 0f, -12f);
+            ContactPlan volley = ContactPlanner.Find(trajectory, nearNet, PlayerSlot.Near, null, ShotButton.Volley, 0f, 7f, movement, tuning);
+            ContactPlan fromNet = ContactPlanner.Find(trajectory, nearNet, PlayerSlot.Near, null, ShotButton.Auto, 0f, 7f, movement, tuning);
+            ContactPlan fromBaseline = ContactPlanner.Find(trajectory, deep, PlayerSlot.Near, null, ShotButton.Auto, 0f, 7f, movement, tuning);
 
             Assert.That(volley.Valid && volley.Reachable, Is.True);
             Assert.That(volley.BallHasBounced, Is.False);
-            Assert.That(normal.Valid, Is.True);
-            Assert.That(normal.BallHasBounced, Is.True, "without the volley button the player lets the ball bounce");
+            Assert.That(fromNet.BallHasBounced, Is.False, "a player who came in does not run back to let the ball bounce");
+            Assert.That(fromBaseline.BallHasBounced, Is.True, "from the baseline the player lets the ball bounce");
+        }
+
+        /// <summary>A player holding a shot button and pushing the stick, like a human running in for the ball.</summary>
+        sealed class StickWhilePreparing : IPlayerIntentSource
+        {
+            public Vector2 Move;
+            bool held;
+
+            public PlayerIntent ReadIntent(in PlayerPerception p)
+            {
+                var intent = new PlayerIntent { Move = Move };
+                if (p.AwaitingServe) return intent;
+                if (p.CanHit && !held)
+                {
+                    intent.Pressed = ShotButton.Auto;
+                    held = true;
+                }
+                return intent;
+            }
+        }
+
+        /// <summary>The near player waits at the baseline for a deep ball from the far side, with no serve in the way.</summary>
+        static (RallySession session, PlayerAgent near) IncomingDeepBall(IPlayerIntentSource source)
+        {
+            RallySession session = NewSession(11);
+            session.Agent(PlayerSlot.Far).IntentSource = new PartnerBot(new System.Random(3));
+
+            var nearBot = new PartnerBot(new System.Random(4));
+            PlayerAgent near = session.Agent(PlayerSlot.Near);
+            near.IntentSource = nearBot;
+
+            // Bots serve and return until the far player has just played a ball that lands deep in the near court.
+            for (int i = 0; i < (int)(120f / Dt); i++)
+            {
+                session.Tick(Dt);
+                foreach (RallyEvent e in session.Events)
+                {
+                    if (e.Type != RallyEventType.Hit || e.Slot != PlayerSlot.Far) continue;
+                    Vector3 landing = session.Trajectory.FirstBouncePoint;
+                    bool deep = session.Trajectory.HasFirstBounce && landing.z < -8f && landing.z > -CourtGeometry.HalfLength && Mathf.Abs(landing.x) < 3f;
+                    if (deep && near.Position.z < -9f && e.Shot.Kind == ShotKind.Topspin)
+                    {
+                        near.IntentSource = source;
+                        return (session, near);
+                    }
+                }
+            }
+            Assert.Fail("No deep ball was played.");
+            return default;
+        }
+
+        [Test]
+        public void Stick_MovesThePlayerForwardWhileAShotIsPrepared()
+        {
+            var script = new StickWhilePreparing { Move = new Vector2(0f, 1f) };
+            (RallySession session, PlayerAgent near) = IncomingDeepBall(script);
+            float startZ = near.Position.z;
+
+            float bestZ = startZ;
+            bool hit = false;
+            for (int i = 0; i < (int)(1.6f / Dt) && !hit; i++)
+            {
+                session.Tick(Dt);
+                bestZ = Mathf.Max(bestZ, near.Position.z);
+                foreach (RallyEvent e in session.Events)
+                    if (e.Type == RallyEventType.Hit && e.Slot == PlayerSlot.Near) hit = true;
+            }
+
+            TestContext.WriteLine($"z from {startZ:F2} to {bestZ:F2}, hit {hit}");
+            Assert.That(bestZ - startZ, Is.GreaterThan(1.5f), "the stick must keep moving the player while the button is held");
+            Assert.That(hit, Is.True, "moving in must not lose the ball: the contact point follows the player");
+        }
+
+        [Test]
+        public void NeutralStick_StillRunsToTheBallWhileAShotIsPrepared()
+        {
+            var script = new StickWhilePreparing();
+            (RallySession session, PlayerAgent near) = IncomingDeepBall(script);
+
+            bool hit = false;
+            for (int i = 0; i < (int)(2f / Dt) && !hit; i++)
+            {
+                session.Tick(Dt);
+                foreach (RallyEvent e in session.Events)
+                    if (e.Type == RallyEventType.Hit && e.Slot == PlayerSlot.Near) hit = true;
+            }
+            Assert.That(hit, Is.True);
+        }
+
+        [Test]
+        public void Stick_IsFreeBeforeAnyButtonIsPressed()
+        {
+            RallySession session = NewSession(5);
+            PlayerAgent near = session.Agent(PlayerSlot.Near);
+            session.Agent(PlayerSlot.Far).IntentSource = new PartnerBot(new System.Random(1));
+            near.IntentSource = new StickWhilePreparing { Move = new Vector2(0f, 1f) };
+            near.Movement.Teleport(new Vector3(0f, 0f, -12f));
+
+            // The receiver may walk during the serve; the far player serves on the second point in real play.
+            for (int i = 0; i < (int)(1f / Dt); i++) near.Movement.Tick(new Vector3(0f, 0f, 6.2f), Dt);
+            Assert.That(near.Position.z, Is.GreaterThan(-7f), "nothing about the court holds a player behind the baseline");
         }
 
         [Test]

@@ -4,6 +4,7 @@
     "references": [
         "TennisSim.Simulation",
         "TennisSim.Runtime",
+        "Unity.InputSystem",
         "UnityEngine.TestRunner"
     ],
     "includePlatforms": [],

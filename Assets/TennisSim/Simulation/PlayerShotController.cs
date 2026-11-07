@@ -14,6 +14,7 @@ namespace TennisSim.Simulation
     {
         const float MinSpeedForClosestApproach = 3f;
         const float MinHorizontalSpeedForLeaving = 3f;
+        const float SteeringReplanInterval = 0.1f;
 
         readonly PlayerSlot slot;
         readonly ShotTuning tuning;
@@ -27,6 +28,7 @@ namespace TennisSim.Simulation
         float phaseEnd;
         float preparationHeld;
         float previousDistance;
+        float nextSteeringReplan;
         bool hasPreviousDistance;
         ShotButton? bufferedPress;
 
@@ -34,9 +36,6 @@ namespace TennisSim.Simulation
         public ShotButton ActiveButton { get; private set; }
         public ContactPlan Plan { get; private set; }
         public HandSide DisplaySide { get; private set; }
-        /// <summary>0 at the start of the swing, 1 at the sweet spot, and beyond during the follow-through.</summary>
-        public float SwingProgress { get; private set; }
-        public bool JustSwung { get; private set; }
 
         public PlayerShotController(PlayerSlot slot, ShotTuning tuning, PlayerMovementTuning movementTuning, in BallPhysicsParams physics, Random rng)
         {
@@ -53,20 +52,19 @@ namespace TennisSim.Simulation
             Plan = default;
             plannedRevision = -1;
             bufferedPress = null;
-            SwingProgress = 0f;
             hasPreviousDistance = false;
         }
 
         /// <summary>Returns a shot when the racket met the ball this tick.</summary>
-        public ShotResult? Tick(in PlayerPerception p, in PlayerIntent intent, Vector3 velocity, float maxSpeed, Vector2 aim)
+        /// <param name="playerSteering">The stick is moving the player, so the contact point has to follow them.</param>
+        public ShotResult? Tick(in PlayerPerception p, in PlayerIntent intent, Vector3 velocity, float maxSpeed, Vector2 aim, bool playerSteering = false)
         {
-            JustSwung = false;
             HandleButtons(p, intent, maxSpeed);
 
             switch (Phase)
             {
                 case SwingPhase.Preparing:
-                    TickPreparing(p, maxSpeed);
+                    TickPreparing(p, maxSpeed, playerSteering);
                     break;
                 case SwingPhase.Swinging:
                     return TickSwinging(p, velocity, aim);
@@ -111,9 +109,13 @@ namespace TennisSim.Simulation
             Replan(p, maxSpeed);
         }
 
-        void TickPreparing(in PlayerPerception p, float maxSpeed)
+        void TickPreparing(in PlayerPerception p, float maxSpeed, bool playerSteering)
         {
-            if (plannedRevision != p.BallRevision) Replan(p, maxSpeed);
+            if (plannedRevision != p.BallRevision || (playerSteering && p.Now >= nextSteeringReplan))
+            {
+                Replan(p, maxSpeed);
+                nextSteeringReplan = p.Now + SteeringReplanInterval;
+            }
             if (Plan.Valid && Plan.Time - p.Now <= tuning.SwingLatency - tuning.AutoSwingLateness)
                 StartSwing(p.Now);
         }
@@ -132,15 +134,12 @@ namespace TennisSim.Simulation
             preparationHeld = now - preparationStart;
             swingStart = now;
             hasPreviousDistance = false;
-            SwingProgress = 0f;
             Phase = SwingPhase.Swinging;
-            JustSwung = true;
         }
 
         ShotResult? TickSwinging(in PlayerPerception p, Vector3 velocity, Vector2 aim)
         {
             float sweetTime = swingStart + tuning.SwingLatency;
-            SwingProgress = (p.Now - swingStart) / tuning.SwingLatency;
 
             if (p.CanHit && !p.AwaitingServe)
             {

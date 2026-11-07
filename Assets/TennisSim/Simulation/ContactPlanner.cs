@@ -37,6 +37,8 @@ namespace TennisSim.Simulation
         const float SameSideBias = 0.15f;
         const float MinLeadTime = 0.02f;
         const float NetMargin = 0.1f;
+        const float TravelCostPerMetre = 0.25f;
+        const float AirborneContactCost = 1f;
 
         public static ContactPlan Find(BallTrajectory trajectory, Vector3 feet, PlayerSlot slot, HandSide? forcedSide,
             ShotButton button, float now, float maxSpeed, PlayerMovementTuning movement, ShotTuning t)
@@ -75,8 +77,8 @@ namespace TennisSim.Simulation
             float need = travel / Mathf.Max(maxSpeed, 0.1f);
             bool reachable = need <= lead;
 
-            // Taking a ball out of position costs more than the height it is taken at, and never beats a reachable one.
-            float cost = baseCost + sideCost + travel * 0.02f;
+            // Prefer a contact near where the player chose to stand. An unreachable one never beats a reachable one.
+            float cost = baseCost + sideCost + travel * TravelCostPerMetre;
             if (!reachable) cost += 10f + (need - lead) * 5f;
 
             if (cost < bestCost)
@@ -105,7 +107,7 @@ namespace TennisSim.Simulation
             else if (button == ShotButton.Volley)
                 cost = bounced ? 4f + heightCost : 0.25f * lead; // Meet it as early as possible.
             else
-                cost = bounced ? heightCost : 3f + heightCost; // Let it bounce and take it at a comfortable height.
+                cost = bounced ? heightCost : AirborneContactCost + heightCost; // Normally let it bounce, unless the player is already inside the ball's flight.
 
             return cost + lead * 0.05f;
         }

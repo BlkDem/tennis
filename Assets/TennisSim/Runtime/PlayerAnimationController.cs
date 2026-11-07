@@ -1,107 +1,137 @@
+using System.Collections.Generic;
 using TennisSim.Simulation;
 using UnityEngine;
 
 namespace TennisSim
 {
     /// <summary>
-    /// Translates player state into motion. This prototype version drives a primitive body procedurally.
-    /// <see cref="Present"/> is the only entry point game code uses, so the Animator-based version of the
-    /// next stage replaces this class's insides without touching any gameplay.
+    /// Translates player state into Animator states. Game code only calls <see cref="Present"/>, so a new
+    /// model or clip set needs a controller with the same state names and no gameplay changes.
+    /// Legs run on the base layer and the shot plays on the upper body, so a player can swing on the run.
     /// </summary>
     public sealed class PlayerAnimationController : MonoBehaviour
     {
-        // Arm yaw around the shoulder, in degrees: 0 points right, 90 behind, -90 straight ahead.
-        const float ForehandBack = 75f;
-        const float ForehandContact = -20f;
-        const float ForehandFinish = -125f;
-        const float BackhandBack = 145f;
-        const float BackhandContact = 215f;
-        const float BackhandFinish = 300f;
-        const float NeutralYaw = -35f;
+        const int UpperLayer = 1;
+        const string Prepare = "_Prep";
+        const string Swing = "_Swing";
+        const string Recovery = "Recovery";
+        const string Celebrate = "Celebrate";
+        const string PointLost = "PointLost";
+        const float SmashHeight = 2.2f;
+        /// <summary>Seconds into every swing clip at which the racket is at its contact pose.</summary>
+        const float ClipContactTime = 0.14f;
+        const float MinSwingSpeed = 0.6f;
+        const float MaxSwingSpeed = 3f;
 
-        const float IdlePitch = 25f;
-        const float SwingPitch = 8f;
-        const float OverheadPitch = -68f;
-        const float SmashHeightForAnimation = 2.2f;
+        static readonly int MoveX = Animator.StringToHash("MoveX");
+        static readonly int MoveZ = Animator.StringToHash("MoveZ");
+        static readonly int Engaged = Animator.StringToHash("Engaged");
+        static readonly int SwingSpeed = Animator.StringToHash("SwingSpeed");
 
-        public Transform body;
-        public Transform armPivot;
-        public float settleSpeed = 14f;
-        public float maxLeanDegrees = 12f;
-        public float stridesPerMetre = 0.9f;
-        public float bobHeight = 0.05f;
+        public Animator animator;
+        [Tooltip("Crossfade into a shot's preparation pose, seconds.")]
+        public float prepareFade = 0.1f;
+        [Tooltip("Crossfade into a swing, seconds. Short, because the swing must keep the game's timing.")]
+        public float swingFade = 0.03f;
+        public float reactionFade = 0.2f;
+        [Tooltip("How fast the upper body blends between the shot and the run, per second.")]
+        public float upperBlendSpeed = 9f;
+        public float moveDamping = 0.08f;
 
-        float yaw = NeutralYaw;
-        float pitch = IdlePitch;
-        float stridePhase;
-        Vector3 bodyRestPosition;
+        readonly Dictionary<string, float> clipLengths = new Dictionary<string, float>();
+
+        PlayerSlot slot;
+        bool bound;
+        SwingPhase lastPhase;
+        string currentPrepare;
+        float upperBusyUntil;
+        float reactionUntil;
+        float lastSimulationTime;
 
         void Awake()
         {
-            if (body != null) bodyRestPosition = body.localPosition;
+            foreach (AnimationClip clip in animator.runtimeAnimatorController.animationClips)
+                clipLengths[clip.name] = clip.length;
         }
 
-        /// <summary>Applies this frame's pose for the given player state.</summary>
-        public void Present(PlayerAgent agent, Vector3 ballPosition)
+        void OnEnable() => GameEvents.RallyEvent += OnRallyEvent;
+        void OnDisable() => GameEvents.RallyEvent -= OnRallyEvent;
+
+        void OnRallyEvent(RallyEvent e)
         {
-            AnimateBody(agent.Movement.Velocity, agent.Movement.Tuning.SprintSpeed);
-            AnimateArm(agent.Shot, ballPosition);
+            if (!bound || e.Type != RallyEventType.PointEnded) return;
+
+            string reaction = e.Slot == slot ? Celebrate : PointLost;
+            animator.CrossFadeInFixedTime(reaction, reactionFade, 0);
+            reactionUntil = Time.time + clipLengths[reaction];
+            upperBusyUntil = 0f;
         }
 
-        void AnimateBody(Vector3 velocity, float topSpeed)
+        /// <summary>Applies this frame's animation for the given player state.</summary>
+        /// <param name="inPlay">False between points, when a player standing still relaxes.</param>
+        /// <param name="simulationTime">The gameplay clock, which contact plans are timed against.</param>
+        public void Present(PlayerAgent agent, Vector3 ballPosition, bool inPlay, float simulationTime)
         {
-            if (body == null) return;
+            slot = agent.Slot;
+            bound = true;
+            lastSimulationTime = simulationTime;
 
-            float speed = velocity.magnitude;
-            stridePhase += speed * stridesPerMetre * Time.deltaTime * Mathf.PI * 2f;
-            float ratio = Mathf.Clamp01(speed / Mathf.Max(topSpeed, 0.1f));
+            Vector3 localVelocity = transform.InverseTransformDirection(agent.Movement.Velocity);
+            animator.SetFloat(MoveX, localVelocity.x, moveDamping, Time.deltaTime);
+            animator.SetFloat(MoveZ, localVelocity.z, moveDamping, Time.deltaTime);
+            animator.SetBool(Engaged, inPlay || localVelocity.sqrMagnitude > 0.25f);
 
-            body.localPosition = bodyRestPosition + Vector3.up * (Mathf.Abs(Mathf.Sin(stridePhase)) * bobHeight * ratio);
-
-            // Lean into the run, expressed in the body's own frame.
-            Vector3 localVelocity = transform.InverseTransformDirection(velocity);
-            Quaternion lean = Quaternion.Euler(localVelocity.z / Mathf.Max(topSpeed, 0.1f) * maxLeanDegrees, 0f, -localVelocity.x / Mathf.Max(topSpeed, 0.1f) * maxLeanDegrees);
-            body.localRotation = Quaternion.Slerp(body.localRotation, lean, 1f - Mathf.Exp(-settleSpeed * Time.deltaTime));
+            UpdateUpperBody(agent.Shot, ballPosition);
         }
 
-        void AnimateArm(PlayerShotController shot, Vector3 ballPosition)
+        void UpdateUpperBody(PlayerShotController shot, Vector3 ballPosition)
         {
-            if (armPivot == null) return;
+            SwingPhase phase = shot.Phase;
+            string family = ShotFamily(shot, ballPosition);
 
-            bool forehand = shot.DisplaySide == HandSide.Forehand;
-            float back = forehand ? ForehandBack : BackhandBack;
-            float contact = forehand ? ForehandContact : BackhandContact;
-            float finish = forehand ? ForehandFinish : BackhandFinish;
-            bool overhead = ballPosition.y >= SmashHeightForAnimation;
-
-            float blend = 1f - Mathf.Exp(-settleSpeed * Time.deltaTime);
-            switch (shot.Phase)
+            if (phase == SwingPhase.Preparing)
             {
-                case SwingPhase.Preparing:
-                    yaw = Mathf.Lerp(yaw, back, blend);
-                    pitch = Mathf.Lerp(pitch, overhead ? OverheadPitch : SwingPitch, blend);
-                    break;
-
-                case SwingPhase.Swinging:
-                    float progress = shot.SwingProgress;
-                    yaw = progress <= 1f
-                        ? Mathf.Lerp(back, contact, progress * progress)
-                        : Mathf.Lerp(contact, finish, Mathf.Clamp01((progress - 1f) * 1.2f));
-                    pitch = Mathf.Lerp(pitch, overhead ? OverheadPitch : SwingPitch, blend);
-                    break;
-
-                case SwingPhase.Recovering:
-                    yaw = Mathf.Lerp(yaw, finish, blend);
-                    pitch = Mathf.Lerp(pitch, IdlePitch, blend);
-                    break;
-
-                default:
-                    yaw = Mathf.Lerp(yaw, NeutralYaw, blend * 0.5f);
-                    pitch = Mathf.Lerp(pitch, IdlePitch, blend * 0.5f);
-                    break;
+                string state = family + Prepare;
+                if (lastPhase != SwingPhase.Preparing || state != currentPrepare)
+                {
+                    animator.CrossFadeInFixedTime(state, prepareFade, UpperLayer);
+                    currentPrepare = state;
+                }
             }
+            else if (phase == SwingPhase.Swinging && lastPhase != SwingPhase.Swinging)
+            {
+                string state = family + Swing;
+                animator.SetFloat(SwingSpeed, SwingSpeedFor(shot));
+                animator.CrossFadeInFixedTime(state, swingFade, UpperLayer);
+                upperBusyUntil = Time.time + clipLengths[state] - 0.1f;
+                reactionUntil = 0f;
+            }
+            lastPhase = phase;
 
-            armPivot.localRotation = Quaternion.Euler(0f, yaw, -pitch);
+            bool shotActive = phase == SwingPhase.Preparing || phase == SwingPhase.Swinging || Time.time < upperBusyUntil;
+            float target = shotActive && Time.time >= reactionUntil ? 1f : 0f;
+            float weight = Mathf.MoveTowards(animator.GetLayerWeight(UpperLayer), target, upperBlendSpeed * Time.deltaTime);
+            animator.SetLayerWeight(UpperLayer, weight);
+        }
+
+        /// <summary>
+        /// A swing can start closer to or further from the contact than its clip expects. Playing the clip
+        /// at the right speed brings the racket to its contact pose just as the ball arrives.
+        /// </summary>
+        float SwingSpeedFor(PlayerShotController shot)
+        {
+            if (!shot.Plan.Valid) return 1f;
+            float untilContact = shot.Plan.Time - lastSimulationTime;
+            return untilContact > 0.01f ? Mathf.Clamp(ClipContactTime / untilContact, MinSwingSpeed, MaxSwingSpeed) : MaxSwingSpeed;
+        }
+
+        static string ShotFamily(PlayerShotController shot, Vector3 ballPosition)
+        {
+            ContactPlan plan = shot.Plan;
+            if (plan.Valid && plan.BallPoint.y >= SmashHeight && !plan.BallHasBounced) return "Smash";
+            if (!plan.Valid && ballPosition.y >= SmashHeight && shot.Phase == SwingPhase.Swinging) return "Smash";
+            if (plan.Valid && !plan.BallHasBounced && shot.DisplaySide == HandSide.Forehand) return "Volley";
+            return shot.DisplaySide == HandSide.Forehand ? "Forehand" : "Backhand";
         }
     }
 }

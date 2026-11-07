@@ -11,17 +11,24 @@ namespace TennisSim.Simulation
         const float NetZoneDistance = 5f;
         const float RecoveryBehindBaseline = 0.6f;
         const float VolleyRecoveryDistance = 3.2f;
+        /// <summary>Spare time left when auto-positioning takes over, so the player arrives and can still aim.</summary>
+        const float ContactCommitMargin = 0.25f;
 
         readonly PlayerMovementTuning movementTuning;
 
         bool recovering;
+        bool committedToContact;
+        int committedRevision;
         Vector2 aim;
 
         public PlayerSlot Slot { get; }
         public PlayerMovement Movement { get; }
         public PlayerShotController Shot { get; }
         public IPlayerIntentSource IntentSource { get; set; }
-        /// <summary>When on, a preparing player runs to the contact point and the stick only aims. When off, control is fully manual.</summary>
+        /// <summary>
+        /// When on, the stick still moves a preparing player, and only at the last moment, or with the stick
+        /// neutral, does the player run to the contact point by themselves. When off, control is fully manual.
+        /// </summary>
         public bool AutoPositioning { get; set; } = true;
 
         public Vector3 Position => Movement.Position;
@@ -41,6 +48,7 @@ namespace TennisSim.Simulation
             Movement.Teleport(position);
             Shot.ResetForPoint();
             recovering = false;
+            committedToContact = false;
             aim = Vector2.zero;
         }
 
@@ -52,14 +60,33 @@ namespace TennisSim.Simulation
             UpdateAim(intent);
 
             float sprintSpeed = intent.Sprint ? movementTuning.SprintSpeed : movementTuning.RunSpeed;
-            ShotResult? shot = Shot.Tick(p, intent, Movement.Velocity, sprintSpeed, aim);
+            bool stickActive = intent.Move.sqrMagnitude > StickActive * StickActive;
+            UpdateContactCommitment(p, sprintSpeed);
+            bool steering = stickActive && (!AutoPositioning || !committedToContact);
 
-            if (intent.Pressed.HasValue || intent.Move.sqrMagnitude > StickActive * StickActive) recovering = false;
+            ShotResult? shot = Shot.Tick(p, intent, Movement.Velocity, sprintSpeed, aim, steering);
+
+            if (intent.Pressed.HasValue || stickActive) recovering = false;
             if (shot.HasValue) recovering = true;
 
-            Vector3 desired = p.AwaitingServe && p.IsServer ? Vector3.zero : DesiredVelocity(intent, sprintSpeed);
+            Vector3 desired = p.AwaitingServe && p.IsServer ? Vector3.zero : DesiredVelocity(intent, sprintSpeed, steering);
             Movement.Tick(desired, dt);
             return shot;
+        }
+
+        /// <summary>Latches once the player has to start running to make the contact, so control does not flicker.</summary>
+        void UpdateContactCommitment(in PlayerPerception p, float speed)
+        {
+            bool committedPhase = Shot.Phase == SwingPhase.Preparing || Shot.Phase == SwingPhase.Swinging;
+            if (!committedPhase || !Shot.Plan.Valid || committedRevision != p.BallRevision)
+            {
+                committedToContact = false;
+                committedRevision = p.BallRevision;
+            }
+            if (committedToContact || !committedPhase || !Shot.Plan.Valid) return;
+
+            float travelTime = Vector3.Distance(Position, Shot.Plan.Stance) / Mathf.Max(speed, 0.1f);
+            committedToContact = Shot.Phase == SwingPhase.Swinging || travelTime + ContactCommitMargin >= Shot.Plan.Time - p.Now;
         }
 
         void UpdateAim(in PlayerIntent intent)
@@ -68,12 +95,12 @@ namespace TennisSim.Simulation
             aim = intent.Aim.sqrMagnitude > StickActive * StickActive ? intent.Aim : intent.Move;
         }
 
-        Vector3 DesiredVelocity(in PlayerIntent intent, float speed)
+        Vector3 DesiredVelocity(in PlayerIntent intent, float speed, bool steering)
         {
             bool preparing = Shot.Phase == SwingPhase.Preparing;
             bool committed = preparing || Shot.Phase == SwingPhase.Swinging;
 
-            if (AutoPositioning && committed && Shot.Plan.Valid)
+            if (AutoPositioning && committed && Shot.Plan.Valid && !steering)
                 return Movement.ArriveVelocity(Shot.Plan.Stance, speed);
 
             if (intent.Move.sqrMagnitude > StickActive * StickActive)

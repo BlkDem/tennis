@@ -1,0 +1,69 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!319 &31900000
+AvatarMask:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: UpperBody
+  m_Mask: 01000000010000000100000001000000010000000100000001000000010000000100000001000000010000000100000001000000u
+  m_Elements:
+  - m_Path: 
+    m_Weight: 0
+  - m_Path: Player
+    m_Weight: 0
+  - m_Path: Racket
+    m_Weight: 0
+  - m_Path: Rig
+    m_Weight: 0
+  - m_Path: Rig/Hips
+    m_Weight: 0
+  - m_Path: Rig/Hips/L_UpperLeg
+    m_Weight: 0
+  - m_Path: Rig/Hips/L_UpperLeg/L_LowerLeg
+    m_Weight: 0
+  - m_Path: Rig/Hips/L_UpperLeg/L_LowerLeg/L_Foot
+    m_Weight: 0
+  - m_Path: Rig/Hips/L_UpperLeg/L_LowerLeg/L_Foot/L_Toes
+    m_Weight: 0
+  - m_Path: Rig/Hips/R_UpperLeg
+    m_Weight: 0
+  - m_Path: Rig/Hips/R_UpperLeg/R_LowerLeg
+    m_Weight: 0
+  - m_Path: Rig/Hips/R_UpperLeg/R_LowerLeg/R_Foot
+    m_Weight: 0
+  - m_Path: Rig/Hips/R_UpperLeg/R_LowerLeg/R_Foot/R_Toes
+    m_Weight: 0
+  - m_Path: Rig/Hips/Spine
+    m_Weight: 1
+  - m_Path: Rig/Hips/Spine/Chest
+    m_Weight: 1
+  - m_Path: Rig/Hips/Spine/Chest/L_Clavicle
+    m_Weight: 1
+  - m_Path: Rig/Hips/Spine/Chest/L_Clavicle/L_UpperArm
+    m_Weight: 1
+  - m_Path: Rig/Hips/Spine/Chest/L_Clavicle/L_UpperArm/L_LowerArm
+    m_Weight: 1
+  - m_Path: Rig/Hips/Spine/Chest/L_Clavicle/L_UpperArm/L_LowerArm/L_Hand
+    m_Weight: 1
+  - m_Path: Rig/Hips/Spine/Chest/L_Clavicle/L_UpperArm/L_LowerArm/L_Hand/L_Fingers
+    m_Weight: 1
+  - m_Path: Rig/Hips/Spine/Chest/Neck
+    m_Weight: 1
+  - m_Path: Rig/Hips/Spine/Chest/Neck/Head
+    m_Weight: 1
+  - m_Path: Rig/Hips/Spine/Chest/R_Clavicle
+    m_Weight: 1
+  - m_Path: Rig/Hips/Spine/Chest/R_Clavicle/R_UpperArm
+    m_Weight: 1
+  - m_Path: Rig/Hips/Spine/Chest/R_Clavicle/R_UpperArm/R_LowerArm
+    m_Weight: 1
+  - m_Path: Rig/Hips/Spine/Chest/R_Clavicle/R_UpperArm/R_LowerArm/R_Hand
+    m_Weight: 1
+  - m_Path: Rig/Hips/Spine/Chest/R_Clavicle/R_UpperArm/R_LowerArm/R_Hand/R_Fingers
+    m_Weight: 1
+  - m_Path: Rig/Hips/Spine/Chest/R_Clavicle/R_UpperArm/R_LowerArm/R_Hand/Racket
+    m_Weight: 1
+  - m_Path: Strings
+    m_Weight: 0

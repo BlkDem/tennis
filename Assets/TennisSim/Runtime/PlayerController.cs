@@ -10,6 +10,8 @@ namespace TennisSim
 
         [Tooltip("How fast the body turns to keep facing the ball, degrees per second.")]
         public float turnSpeed = 540f;
+        [Tooltip("How far from facing the net the body may turn towards the ball, degrees.")]
+        public float maxLookAngle = 35f;
 
         RallySession session;
         PlayerAnimationController animationController;
@@ -48,17 +50,24 @@ namespace TennisSim
             FaceTheBall();
 
             if (animationController != null)
-                animationController.Present(Agent, session.Ball.Position);
+                animationController.Present(Agent, session.Ball.Position, session.State == SessionState.Rally, session.Time);
         }
 
         void FaceTheBall()
         {
             Vector3 forward = StrikeZone.Forward(Agent.Slot);
-            Vector3 toBall = session.Ball.Position - Position;
-            toBall.y = 0f;
+            Vector3 facing = forward;
 
-            // Keep the chest towards the opponent's half even when the ball is behind the shoulder.
-            Vector3 facing = toBall.sqrMagnitude > 0.25f ? Vector3.RotateTowards(forward, toBall.normalized, 60f * Mathf.Deg2Rad, 0f) : forward;
+            // A shot faces the net: its clips are authored for a strike zone measured from there.
+            SwingPhase phase = Agent.Shot.Phase;
+            if (phase != SwingPhase.Preparing && phase != SwingPhase.Swinging)
+            {
+                Vector3 toBall = session.Ball.Position - Position;
+                toBall.y = 0f;
+                if (toBall.sqrMagnitude > 0.25f)
+                    facing = Vector3.RotateTowards(forward, toBall.normalized, maxLookAngle * Mathf.Deg2Rad, 0f);
+            }
+
             Quaternion target = Quaternion.LookRotation(facing);
             transform.rotation = Quaternion.RotateTowards(transform.rotation, target, turnSpeed * Time.deltaTime);
         }

@@ -1,5 +1,6 @@
 using System.Collections;
 using System.IO;
+using System.Linq;
 using NUnit.Framework;
 using TennisSim.Simulation;
 using UnityEngine;
@@ -15,12 +16,25 @@ namespace TennisSim.Tests
         const string ScreenshotDirectory = "Logs/Screenshots";
 
         GameManager game;
+        Renderer nearRacket;
+        Renderer farRacket;
         int hits;
         int points;
+        float racketDistanceTotal;
+        bool nearHitSeen;
+
+        static Renderer RacketOf(PlayerController player) =>
+            player.GetComponentsInChildren<SkinnedMeshRenderer>().First(r => r.name == "Racket");
 
         void OnRallyEvent(RallyEvent e)
         {
-            if (e.Type == RallyEventType.Hit) hits++;
+            if (e.Type == RallyEventType.Hit)
+            {
+                hits++;
+                Renderer racket = e.Slot == PlayerSlot.Near ? nearRacket : farRacket;
+                racketDistanceTotal += Vector3.Distance(racket.bounds.center, e.Point);
+                if (e.Slot == PlayerSlot.Near && hits > 2) nearHitSeen = true;
+            }
             if (e.Type == RallyEventType.PointEnded) points++;
         }
 
@@ -31,7 +45,11 @@ namespace TennisSim.Tests
             game = Object.FindAnyObjectByType<GameManager>();
             Assert.That(game, Is.Not.Null, "The scene has no GameManager.");
             game.UseBotForNearPlayer();
+            nearRacket = RacketOf(game.nearPlayer);
+            farRacket = RacketOf(game.farPlayer);
             hits = points = 0;
+            racketDistanceTotal = 0f;
+            nearHitSeen = false;
             GameEvents.RallyEvent += OnRallyEvent;
             Time.timeScale = 3f;
         }
@@ -51,13 +69,20 @@ namespace TennisSim.Tests
             BallController ball = Object.FindAnyObjectByType<BallController>();
             PlayerController nearPlayer = game.nearPlayer;
             int feetVisibleFrames = 0;
+            bool savedContact = false;
+
+            yield return null;
+            yield return null;
+            Assert.That(nearRacket.bounds.center.z, Is.GreaterThan(nearPlayer.Position.z), "the near model must face the net");
+            Assert.That(farRacket.bounds.center.z, Is.LessThan(game.farPlayer.Position.z), "the far model must face the net");
 
             float start = Time.time;
             int inPlayFrames = 0;
             int visibleFrames = 0;
             bool savedScreenshot = false;
 
-            while (Time.time - start < 45f)
+            // Long rallies are normal, so keep watching until a point has finished, within reason.
+            while (Time.time - start < 45f || (points == 0 && Time.time - start < 240f))
             {
                 yield return null;
 
@@ -67,6 +92,12 @@ namespace TennisSim.Tests
                 Vector3 viewport = camera.WorldToViewportPoint(ball.Position);
                 bool visible = viewport.z > 0f && viewport.x is > 0f and < 1f && viewport.y is > 0f and < 1f;
                 if (visible) visibleFrames++;
+
+                if (!savedContact && nearHitSeen)
+                {
+                    savedContact = true;
+                    SaveCloseUp(nearPlayer.Position);
+                }
 
                 Vector3 feet = camera.WorldToViewportPoint(nearPlayer.Position);
                 if (feet.y > 0f && feet.y < 1f && feet.x > 0f && feet.x < 1f) feetVisibleFrames++;
@@ -80,9 +111,25 @@ namespace TennisSim.Tests
 
             Debug.Log($"Scene test: hits {hits}, points {points}, ball on screen {visibleFrames}/{inPlayFrames} frames, near player's feet on screen {feetVisibleFrames}/{inPlayFrames} frames");
             Assert.That(feetVisibleFrames / (float)inPlayFrames, Is.GreaterThan(0.95f), "the camera should keep the near player in view");
+            float racketDistance = racketDistanceTotal / Mathf.Max(hits, 1);
+            Debug.Log($"Scene test: racket centre is {racketDistance:F2} m from the ball at contact on average");
             Assert.That(hits, Is.GreaterThan(10), "the players should be hitting the ball");
+            Assert.That(racketDistance, Is.LessThan(1.1f), "the swing animation should bring the racket to the ball");
             Assert.That(points, Is.GreaterThan(0), "points should finish");
             Assert.That(visibleFrames / (float)inPlayFrames, Is.GreaterThan(0.97f), "the camera should keep the ball in view");
+        }
+
+        /// <summary>A close view of the player just after a hit, for judging the swing by eye.</summary>
+        static void SaveCloseUp(Vector3 playerPosition)
+        {
+            var cameraObject = new GameObject("Close-up Camera");
+            var closeUp = cameraObject.AddComponent<Camera>();
+            closeUp.clearFlags = CameraClearFlags.SolidColor;
+            closeUp.backgroundColor = new Color(0.56f, 0.72f, 0.88f);
+            cameraObject.transform.position = playerPosition + new Vector3(-1.5f, 1.5f, 3.5f);
+            cameraObject.transform.LookAt(playerPosition + Vector3.up);
+            SaveScreenshot(closeUp, "contact.png");
+            Object.Destroy(cameraObject);
         }
 
         static void SaveScreenshot(Camera camera, string fileName)
