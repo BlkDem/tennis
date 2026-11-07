@@ -1,6 +1,6 @@
 """
 Renders the crowd: the rigged player in spectator poses, seen from the front and from behind, packed
-into one atlas plus a clothing mask that lets the game give every spectator their own colours.
+into one atlas plus a mask (R shirt, G shorts, B hair) that lets the game give every spectator their own colours.
 
     blender -b --factory-startup --python make_crowd_atlas.py -- <work_dir> <player_art_dir> <stadium_art_dir>
 
@@ -119,15 +119,18 @@ def clothing_mask(player, base_color_path):
 
     shirt = whiteness * (up > 0.97) * (up < 1.58) * ~((across > 0.3) & (up < 1.3))
     shorts = whiteness * (up > 0.55) * (up <= 0.97)
+    # Hair: dark and brownish, on the head.
+    hair = np.clip((0.42 - brightest) / 0.12, 0.0, 1.0) * (colour[:, 0] >= colour[:, 2] - 0.02) * (up > 1.6)
 
     attribute = mesh.color_attributes.new("ClothMask", "FLOAT_COLOR", "CORNER")
     data = np.zeros((loops, 4), dtype=np.float32)
     data[:, 0] = shirt
     data[:, 1] = shorts
+    data[:, 2] = hair
     data[:, 3] = 1.0
     attribute.data.foreach_set("color", data.ravel())
     mesh.color_attributes.active_color = attribute
-    log(f"mask: shirt {np.mean(shirt > 0.5):.1%} of corners, shorts {np.mean(shorts > 0.5):.1%}")
+    log(f"mask: shirt {np.mean(shirt > 0.5):.1%} of corners, shorts {np.mean(shorts > 0.5):.1%}, hair {np.mean(hair > 0.5):.1%}")
 
 
 def setup_render():
@@ -221,7 +224,6 @@ def main():
             mask[y0:y0 + CELL_HEIGHT, x0:x0 + CELL_WIDTH] = render_cell(scene, temp)
 
     save(atlas, os.path.join(art_dir, "Crowd_Atlas.png"), "sRGB")
-    mask[..., 2] = 0.0
     save(mask, os.path.join(art_dir, "Crowd_Mask.png"), "Non-Color")
     log(f"{columns} poses x 2 views, cell {CELL_WIDTH}x{CELL_HEIGHT} px = {CELL_METRES_HIGH / 2:.2f} x {CELL_METRES_HIGH:.2f} m")
 

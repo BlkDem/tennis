@@ -36,7 +36,7 @@ namespace TennisSim
             for (int i = 0; i < 2; i++)
             {
                 var slot = (PlayerSlot)i;
-                Set(names[i], slot == PlayerSlot.Near ? "ИГРОК 1" : "ИГРОК 2");
+                Set(names[i], game.PlayerName(slot));
                 Set(sets[i], score.Sets(slot).ToString());
                 Set(games[i], score.Games(slot).ToString());
                 Set(points[i], PointText(score, slot));
@@ -47,6 +47,7 @@ namespace TennisSim
 
         static string PointText(TennisScore score, PlayerSlot slot)
         {
+            if (score.IsTieBreak) return score.PointText(slot);
             if (score.IsDeuce) return "40";
             PlayerSlot? advantage = score.Advantage;
             if (advantage.HasValue) return advantage.Value == slot ? "AD" : "";

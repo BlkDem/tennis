@@ -4,7 +4,7 @@ using UnityEngine;
 
 namespace TennisSim.Simulation
 {
-    public enum SessionState { AwaitingServe, Toss, Rally, ServeCalled, PointOver }
+    public enum SessionState { AwaitingServe, Toss, Rally, ServeCalled, PointOver, MatchOver }
 
     public enum RallyEventType { ServeToss, TossCaught, Hit, Bounce, NetFabric, NetCord, Fault, Let, PointEnded }
 
@@ -70,6 +70,9 @@ namespace TennisSim.Simulation
         public IReadOnlyList<RallyEvent> Events => events;
 
         public RallySession(in BallPhysicsParams physics, ShotTuning shotTuning, PlayerMovementTuning movementTuning, int seed)
+            : this(physics, shotTuning, movementTuning, seed, MatchRules.BestOfThree) { }
+
+        public RallySession(in BallPhysicsParams physics, ShotTuning shotTuning, PlayerMovementTuning movementTuning, int seed, MatchRules rules)
         {
             this.physics = physics;
             this.shotTuning = shotTuning;
@@ -79,7 +82,7 @@ namespace TennisSim.Simulation
                 new PlayerAgent(PlayerSlot.Near, movementTuning, shotTuning, physics, rng),
                 new PlayerAgent(PlayerSlot.Far, movementTuning, shotTuning, physics, rng),
             };
-            Score = new TennisScore(PlayerSlot.Near);
+            Score = new TennisScore(PlayerSlot.Near, rules);
             StartPoint();
         }
 
@@ -125,7 +128,15 @@ namespace TennisSim.Simulation
 
                 case SessionState.PointOver:
                     StepBall(dt);
-                    if (Time >= stateEndsAt) StartPoint();
+                    if (Time >= stateEndsAt)
+                    {
+                        if (Score.MatchOver) State = SessionState.MatchOver;
+                        else StartPoint();
+                    }
+                    break;
+
+                case SessionState.MatchOver:
+                    StepBall(dt);
                     break;
             }
         }
@@ -138,6 +149,7 @@ namespace TennisSim.Simulation
                 Now = Time,
                 Slot = agent.Slot,
                 Position = agent.Position,
+                OpponentPosition = agents[1 - (int)agent.Slot].Position,
                 Ball = ball,
                 Trajectory = trajectory,
                 BouncesSinceHit = referee.BouncesSinceHit,

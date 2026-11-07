@@ -5,6 +5,7 @@
         "TennisSim.Simulation",
         "TennisSim.Runtime",
         "Unity.InputSystem",
+        "UnityEngine.UI",
         "UnityEngine.TestRunner"
     ],
     "includePlatforms": [],

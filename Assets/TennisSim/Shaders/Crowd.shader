@@ -12,7 +12,7 @@ Shader "TennisSim/Crowd"
     Properties
     {
         _Atlas ("Atlas", 2D) = "white" {}
-        _Mask ("Clothing mask (R shirt, G shorts)", 2D) = "black" {}
+        _Mask ("Mask (R shirt, G shorts, B hair)", 2D) = "black" {}
         _Size ("Card size in metres (x across, y up)", Vector) = (1.2, 2.4, 0, 0)
         _Grid ("Atlas columns (poses), rows (views)", Vector) = (5, 2, 0, 0)
         _Cutoff ("Alpha cutoff", Range(0, 1)) = 0.5
@@ -142,17 +142,44 @@ Shader "TennisSim/Crowd"
                 return float3(0.8, 0.8, 0.77);
             }
 
+            float3 HairColour(float s)
+            {
+                float k = frac(s * 29.3);
+                if (k < 0.35) return float3(0.25, 0.17, 0.11);
+                if (k < 0.6) return float3(0.07, 0.06, 0.06);
+                if (k < 0.75) return float3(0.75, 0.6, 0.38);
+                if (k < 0.88) return float3(0.62, 0.62, 0.6);
+                return float3(0.5, 0.22, 0.1);
+            }
+
+            // Lighter or darker skin, from one per-spectator number.
+            float3 SkinTone(float s)
+            {
+                float k = frac(s * 17.9);
+                if (k < 0.3) return float3(1.18, 1.12, 1.08);
+                if (k < 0.65) return float3(1.0, 1.0, 1.0);
+                if (k < 0.85) return float3(0.78, 0.72, 0.66);
+                return float3(0.52, 0.45, 0.4);
+            }
+
             half4 frag(Varyings input) : SV_Target
             {
                 half4 albedo = SAMPLE_TEXTURE2D(_Atlas, sampler_Atlas, input.uv);
                 clip(albedo.a - _Cutoff);
-                half2 cloth = SAMPLE_TEXTURE2D(_Mask, sampler_Mask, input.uv).rg;
+                half3 mask = SAMPLE_TEXTURE2D(_Mask, sampler_Mask, input.uv).rgb;
 
                 // The atlas kit is white, so its brightness carries the folds and shading into the new colour.
                 float shade = dot(albedo.rgb, float3(0.3, 0.59, 0.11)) * 1.15;
                 float3 colour = albedo.rgb;
-                colour = lerp(colour, shade * ShirtColour(input.seed.y), cloth.r);
-                colour = lerp(colour, shade * ShortsColour(input.seed.z), cloth.g);
+
+                // Skin is whatever warm colour is neither clothes nor hair.
+                float warm = saturate((albedo.r - albedo.b) * 4.0 - 0.2);
+                float skin = warm * saturate(1.0 - mask.r - mask.g - mask.b);
+                colour *= lerp(float3(1.0, 1.0, 1.0), SkinTone(input.seed.x), skin);
+
+                colour = lerp(colour, shade * 2.2 * HairColour(input.seed.w), mask.b);
+                colour = lerp(colour, shade * ShirtColour(input.seed.y), mask.r);
+                colour = lerp(colour, shade * ShortsColour(input.seed.z), mask.g);
 
                 // One shadow sample per spectator, at chest height: stands shade whole rows.
                 float4 shadowCoord = TransformWorldToShadowCoord(input.pivotWS + float3(0.0, 1.0, 0.0));

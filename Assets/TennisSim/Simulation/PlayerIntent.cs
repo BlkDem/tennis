@@ -18,6 +18,8 @@ namespace TennisSim.Simulation
         public float Now;
         public PlayerSlot Slot;
         public Vector3 Position;
+        /// <summary>Where the other player stands: everything a human sees on screen, a bot may know too.</summary>
+        public Vector3 OpponentPosition;
         public BallState Ball;
         public BallTrajectory Trajectory;
         public int BouncesSinceHit;

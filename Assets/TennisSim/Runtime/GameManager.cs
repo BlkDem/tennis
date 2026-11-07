@@ -1,12 +1,32 @@
+using System;
 using TennisSim.Simulation;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
 namespace TennisSim
 {
+    public enum GamePhase { Menu, Playing, Paused, MatchOver }
+
+    /// <summary>What the player chose in the menu.</summary>
+    [Serializable]
+    public struct MatchSetup
+    {
+        public MatchRules Rules;
+        public AiLevel Level;
+        /// <summary>The far player is a second human instead of the AI.</summary>
+        public bool VersusHuman;
+        /// <summary>The near player is the AI too: the menu's background match, demos and tests.</summary>
+        public bool NearIsAi;
+        /// <summary>An evening match under the floodlights.</summary>
+        public bool Evening;
+
+        public static MatchSetup Default => new MatchSetup { Rules = MatchRules.OneSet, Level = AiLevel.Medium };
+    }
+
     /// <summary>
     /// Runs the gameplay at a fixed tick and connects it to the scene: intents go in, events and state come out.
-    /// The rally logic lives in <see cref="RallySession"/>, so this class stays a thin host.
+    /// The rally logic lives in <see cref="RallySession"/>, so this class stays a thin host. It also owns the
+    /// game's flow: a menu with an AI match playing behind it, the match, the pause and the result.
     /// </summary>
     [DefaultExecutionOrder(-100)]
     public sealed class GameManager : MonoBehaviour
@@ -23,34 +43,49 @@ namespace TennisSim
         public BallController ball;
         public PlayerController nearPlayer;
         public PlayerController farPlayer;
+        public EnvironmentController environment;
 
-        System.Random botRng;
+        [Tooltip("Open on the menu. Off goes straight into a match against the AI, as the prototype did.")]
+        public bool startInMenu = true;
+
+        System.Random rng;
+        int seed;
+        OpponentAI farAi;
         bool farIsBot;
 
         public RallySession Session { get; private set; }
+        public GamePhase Phase { get; private set; }
+        public MatchSetup Setup { get; private set; }
         public bool FarIsBot => farIsBot;
+        public AiLevel AiLevel => Setup.Level;
         public bool AutoPositioning { get; private set; } = true;
+
+        /// <summary>Raised whenever a new session replaces the old one, or the phase changes.</summary>
+        public event Action Changed;
+
+        public bool IsHuman(PlayerSlot slot) => slot == PlayerSlot.Near ? !Setup.NearIsAi : !farIsBot;
+
+        public string PlayerName(PlayerSlot slot)
+        {
+            if (!IsHuman(slot)) return "ИИ";
+            return slot == PlayerSlot.Near ? "ИГРОК 1" : "ИГРОК 2";
+        }
 
         void Awake()
         {
             Time.fixedDeltaTime = RallySession.TickDt;
-
-            int seed = randomSeed != 0 ? randomSeed : System.Environment.TickCount;
-            botRng = new System.Random(seed ^ 0x5bd1e995);
-            Session = new RallySession(ballConfig.Params, shotConfig.Tuning, playerConfig.Movement, seed);
-
-            ball.Bind(Session);
-            nearPlayer.Bind(Session, PlayerSlot.Near);
-            farPlayer.Bind(Session, PlayerSlot.Far);
-
-            Session.Agent(PlayerSlot.Near).IntentSource = inputManager.Near;
-            ApplyFarPlayerControl(inputManager.GamepadCount < 2);
+            seed = randomSeed != 0 ? randomSeed : Environment.TickCount;
+            rng = new System.Random(seed ^ 0x5bd1e995);
             inputManager.DevicesChanged += OnDevicesChanged;
+
+            if (startInMenu) ShowMenu();
+            else StartMatch(new MatchSetup { Rules = MatchRules.BestOfThree, Level = AiLevel.Medium, VersusHuman = inputManager.GamepadCount >= 2 });
         }
 
         void OnDestroy()
         {
             if (inputManager != null) inputManager.DevicesChanged -= OnDevicesChanged;
+            Time.timeScale = 1f;
         }
 
         void FixedUpdate()
@@ -63,36 +98,123 @@ namespace TennisSim
             ball.OnSessionTicked();
             nearPlayer.OnSessionTicked();
             farPlayer.OnSessionTicked();
+
+            if (Phase == GamePhase.Playing && Session.State == SessionState.MatchOver) SetPhase(GamePhase.MatchOver);
+            // Behind the menu the AI match just carries on.
+            if (Phase == GamePhase.Menu && Session.State == SessionState.MatchOver) ShowMenu();
         }
 
         void Update()
         {
             Keyboard keyboard = Keyboard.current;
-            if (keyboard == null) return;
+            Gamepad gamepad = Gamepad.current;
+            bool pausePressed = (keyboard != null && keyboard.escapeKey.wasPressedThisFrame) || (gamepad != null && gamepad.startButton.wasPressedThisFrame);
+            if (pausePressed)
+            {
+                if (Phase == GamePhase.Playing) Pause(true);
+                else if (Phase == GamePhase.Paused) Pause(false);
+            }
 
+            if (keyboard == null || Phase != GamePhase.Playing) return;
             if (keyboard.f2Key.wasPressedThisFrame) ApplyFarPlayerControl(!farIsBot);
             if (keyboard.f3Key.wasPressedThisFrame) SetAutoPositioning(!AutoPositioning);
+            if (keyboard.f4Key.wasPressedThisFrame) SetAiLevel((AiLevel)(((int)AiLevel + 1) % 3));
+        }
+
+        // ---------------------------------------------------------------- Flow
+
+        public void StartMatch(MatchSetup setup)
+        {
+            Setup = setup;
+            NewSession(setup.Rules);
+            inputManager.Near.Clear();
+            inputManager.Far.Clear();
+
+            PlayerAgent near = Session.Agent(PlayerSlot.Near);
+            near.AutoPositioning = setup.NearIsAi || AutoPositioning;
+            near.IntentSource = setup.NearIsAi ? new OpponentAI(near, setup.Level, rng) : (IPlayerIntentSource)inputManager.Near;
+            farAi = null;
+            ApplyFarPlayerControl(!setup.VersusHuman);
+            if (environment != null) environment.Apply(setup.Evening);
+
+            Time.timeScale = 1f;
+            SetPhase(GamePhase.Playing);
+        }
+
+        /// <summary>The menu, over an AI match that keeps the stadium alive.</summary>
+        public void ShowMenu()
+        {
+            Setup = new MatchSetup { Rules = MatchRules.OneSet, Level = AiLevel.Hard, NearIsAi = true };
+            NewSession(Setup.Rules);
+            PlayerAgent near = Session.Agent(PlayerSlot.Near);
+            near.AutoPositioning = true;
+            near.IntentSource = new OpponentAI(near, AiLevel.Hard, rng);
+            farAi = null;
+            ApplyFarPlayerControl(true);
+            if (environment != null) environment.Apply(false);
+            Time.timeScale = 1f;
+            SetPhase(GamePhase.Menu);
+        }
+
+        public void Pause(bool paused)
+        {
+            if (paused == (Phase == GamePhase.Paused)) return;
+            Time.timeScale = paused ? 0f : 1f;
+            SetPhase(paused ? GamePhase.Paused : GamePhase.Playing);
+        }
+
+        public void Quit()
+        {
+#if UNITY_EDITOR
+            UnityEditor.EditorApplication.isPlaying = false;
+#else
+            Application.Quit();
+#endif
+        }
+
+        void NewSession(MatchRules rules)
+        {
+            Session = new RallySession(ballConfig.Params, shotConfig.Tuning, playerConfig.Movement, seed++, rules);
+            ball.Bind(Session);
+            nearPlayer.Bind(Session, PlayerSlot.Near);
+            farPlayer.Bind(Session, PlayerSlot.Far);
+        }
+
+        void SetPhase(GamePhase phase)
+        {
+            Phase = phase;
+            Changed?.Invoke();
+        }
+
+        // ---------------------------------------------------------------- Controls during a match
+
+        public void SetAiLevel(AiLevel level)
+        {
+            MatchSetup setup = Setup;
+            setup.Level = level;
+            Setup = setup;
+            farAi?.SetLevel(level);
         }
 
         void OnDevicesChanged()
         {
-            if (inputManager.GamepadCount >= 2 && farIsBot) ApplyFarPlayerControl(false);
+            if (Phase == GamePhase.Playing && inputManager.GamepadCount >= 2 && farIsBot) ApplyFarPlayerControl(false);
         }
 
         void ApplyFarPlayerControl(bool useBot)
         {
             farIsBot = useBot;
-            Session.Agent(PlayerSlot.Far).IntentSource = useBot ? new PartnerBot(botRng) : (IPlayerIntentSource)inputManager.Far;
+            PlayerAgent far = Session.Agent(PlayerSlot.Far);
+            farAi ??= new OpponentAI(far, Setup.Level, rng);
+            far.AutoPositioning = useBot || AutoPositioning;
+            far.IntentSource = useBot ? farAi : (IPlayerIntentSource)inputManager.Far;
         }
 
         void SetAutoPositioning(bool value)
         {
             AutoPositioning = value;
-            Session.Agent(PlayerSlot.Near).AutoPositioning = value;
+            if (!Setup.NearIsAi) Session.Agent(PlayerSlot.Near).AutoPositioning = value;
             if (!farIsBot) Session.Agent(PlayerSlot.Far).AutoPositioning = value;
         }
-
-        /// <summary>Hands the near player to a bot, for the automated play tests and hands-off demos.</summary>
-        public void UseBotForNearPlayer() => Session.Agent(PlayerSlot.Near).IntentSource = new PartnerBot(botRng);
     }
 }

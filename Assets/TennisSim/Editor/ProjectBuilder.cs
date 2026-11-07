@@ -35,6 +35,7 @@ namespace TennisSim.EditorTools
         const string StadiumLayoutPath = StadiumArtDir + "/Stadium_Layout.json";
         const string CrowdShaderPath = Root + "/Shaders/Crowd.shader";
         const string CrowdMeshPath = GeneratedDir + "/Crowd.mesh.asset";
+        const string AudioDir = Root + "/Audio";
         const string ScenePath = SceneDir + "/Prototype.unity";
         const string UrpAssetPath = SettingsDir + "/URP.asset";
         const string UrpRendererPath = SettingsDir + "/URP_Renderer.asset";
@@ -323,6 +324,8 @@ namespace TennisSim.EditorTools
                 ["Furniture_Seat"] = Lit("FurnitureSeat", new Color(0.9f, 0.9f, 0.88f), 0.4f),
                 ["Scoreboard_Frame"] = Lit("ScoreboardFrame", new Color(0.12f, 0.13f, 0.14f), 0.5f),
                 ["Scoreboard_Screen"] = Lit("ScoreboardScreen", new Color(0.015f, 0.02f, 0.03f), 0.8f),
+                ["Floodlight_Metal"] = Lit("FloodlightMetal", new Color(0.32f, 0.34f, 0.36f), 0.5f),
+                ["Floodlight_Lamp"] = Lit("FloodlightLamp", new Color(0.85f, 0.86f, 0.8f), 0.8f),
             },
             Crowd = CrowdMaterial(),
             Post = Lit("NetPost", new Color(0.12f, 0.14f, 0.13f), 0.5f),
@@ -675,14 +678,42 @@ namespace TennisSim.EditorTools
             game.nearPlayer = near;
             game.farPlayer = far;
 
-            BuildStadium(m, game);
+            BuildStadium(m, game, sun);
+            BuildAudio(game);
 
             new GameObject("PrototypeOverlay").AddComponent<PrototypeOverlay>().game = game;
+            new GameObject("HUD").AddComponent<HudController>().game = game;
 
-            BuildCamera(near, ball);
+            BuildCamera(near, far, ball);
 
             EditorSceneManager.SaveScene(scene, ScenePath);
             EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(ScenePath, true) };
+        }
+
+        /// <summary>Sound from Tools/Audio/make_sounds.py; variants of one sound share a name with a number after it.</summary>
+        static void BuildAudio(GameManager game)
+        {
+            var audio = new GameObject("AudioManager").AddComponent<AudioManager>();
+            audio.game = game;
+            audio.hitHard = Clips("HitHard");
+            audio.hitSoft = Clips("HitSoft");
+            audio.hitFrame = Clips("HitFrame");
+            audio.bounce = Clips("Bounce");
+            audio.squeak = Clips("Squeak");
+            audio.net = Load<AudioClip>($"{AudioDir}/Net.wav");
+            audio.netCord = Load<AudioClip>($"{AudioDir}/NetCord.wav");
+            audio.murmur = Load<AudioClip>($"{AudioDir}/CrowdMurmur.wav");
+            audio.applause = Load<AudioClip>($"{AudioDir}/Applause.wav");
+            audio.cheer = Load<AudioClip>($"{AudioDir}/Cheer.wav");
+            audio.ooh = Load<AudioClip>($"{AudioDir}/Ooh.wav");
+        }
+
+        static AudioClip[] Clips(string prefix)
+        {
+            AudioClip[] clips = Directory.GetFiles(AudioDir, prefix + "_*.wav").OrderBy(p => p)
+                .Select(p => Load<AudioClip>(p.Replace('\\', '/'))).ToArray();
+            if (clips.Length == 0) throw new FileNotFoundException("No sounds named " + prefix);
+            return clips;
         }
 
         static Material DaySky()
@@ -763,9 +794,14 @@ namespace TennisSim.EditorTools
             public float[] scoreboardCenter;
             public float scoreboardWidth;
             public float scoreboardHeight;
+            /// <summary>Per floodlight: x, y, z of the lamp's face. Each aims at the centre of the court.</summary>
+            public float[] floodlights;
         }
 
-        static void BuildStadium(Materials m, GameManager game)
+        const float FloodlightIntensity = 700f;
+        const float FloodlightAngle = 62f;
+
+        static void BuildStadium(Materials m, GameManager game, Light sun)
         {
             var stadium = (GameObject)PrefabUtility.InstantiatePrefab(Load<GameObject>(StadiumModelPath));
             stadium.name = "Stadium";
@@ -784,6 +820,37 @@ namespace TennisSim.EditorTools
             StadiumLayout layout = JsonUtility.FromJson<StadiumLayout>(Load<TextAsset>(StadiumLayoutPath).text);
             BuildCrowd(layout, m.Crowd);
             BuildScoreboard(layout, game);
+            game.environment = BuildEnvironment(layout, sun, stadium.transform.Find("Floodlight_Lamp").GetComponent<Renderer>());
+        }
+
+        /// <summary>Day and evening. The floodlights hang on the corner masts and aim at the middle of the court.</summary>
+        static EnvironmentController BuildEnvironment(StadiumLayout layout, Light sun, Renderer lamps)
+        {
+            var environment = new GameObject("Environment").AddComponent<EnvironmentController>();
+            environment.sun = sun;
+            environment.sky = RenderSettings.skybox;
+            environment.lampRenderer = lamps;
+
+            var lights = new List<Light>();
+            for (int i = 0; i + 3 <= layout.floodlights.Length; i += 3)
+            {
+                var position = new Vector3(layout.floodlights[i], layout.floodlights[i + 1], layout.floodlights[i + 2]);
+                var light = new GameObject("Floodlight " + lights.Count).AddComponent<Light>();
+                light.transform.SetParent(environment.transform, false);
+                light.transform.position = position;
+                light.transform.rotation = Quaternion.LookRotation(Vector3.zero - position);
+                light.type = LightType.Spot;
+                light.spotAngle = FloodlightAngle;
+                light.innerSpotAngle = FloodlightAngle * 0.6f;
+                light.range = 120f;
+                light.intensity = FloodlightIntensity;
+                light.color = new Color(1f, 0.96f, 0.88f);
+                light.shadows = LightShadows.None;
+                light.enabled = false;
+                lights.Add(light);
+            }
+            environment.floodlights = lights.ToArray();
+            return environment;
         }
 
         /// <summary>
@@ -1038,7 +1105,7 @@ namespace TennisSim.EditorTools
             return primitive;
         }
 
-        static void BuildCamera(PlayerController near, BallController ball)
+        static void BuildCamera(PlayerController near, PlayerController far, BallController ball)
         {
             var cameraObject = new GameObject("Main Camera") { tag = "MainCamera" };
             var camera = cameraObject.AddComponent<Camera>();
@@ -1077,6 +1144,7 @@ namespace TennisSim.EditorTools
             controller.followTarget = followTarget;
             controller.lookTarget = lookTarget;
             controller.trackedPlayer = near;
+            controller.otherPlayer = far;
             controller.ball = ball;
         }
     }

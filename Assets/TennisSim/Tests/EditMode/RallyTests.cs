@@ -168,6 +168,72 @@ namespace TennisSim.Tests
             Assert.That(score.Server, Is.EqualTo(PlayerSlot.Far), "the serve changes hands after every game");
         }
 
+        static void WinGame(TennisScore score, PlayerSlot slot)
+        {
+            for (int i = 0; i < 4; i++) score.AddPoint(slot);
+        }
+
+        [Test]
+        public void Score_SixAllGoesToATieBreak()
+        {
+            var score = new TennisScore(PlayerSlot.Near, MatchRules.BestOfThree);
+            for (int i = 0; i < 6; i++)
+            {
+                WinGame(score, PlayerSlot.Near);
+                WinGame(score, PlayerSlot.Far);
+            }
+            Assert.That(score.IsTieBreak, Is.True);
+            PlayerSlot first = score.Server;
+            Assert.That(first, Is.EqualTo(PlayerSlot.Near), "after twelve games the first server is due again");
+
+            // Serve order in a tie-break: A, then B twice, A twice, ...
+            var order = new System.Collections.Generic.List<PlayerSlot>();
+            for (int i = 0; i < 6; i++)
+            {
+                order.Add(score.Server);
+                score.AddPoint(i % 2 == 0 ? PlayerSlot.Near : PlayerSlot.Far);
+            }
+            Assert.That(order, Is.EqualTo(new[] { first, CourtGeometry.Opponent(first), CourtGeometry.Opponent(first), first, first, CourtGeometry.Opponent(first) }));
+            Assert.That(score.PointText(PlayerSlot.Near), Is.EqualTo("3"), "tie-break points are counted plainly");
+
+            // 3:3 -> 7:4 takes the set 7:6.
+            score.AddPoint(PlayerSlot.Near);
+            score.AddPoint(PlayerSlot.Far);
+            score.AddPoint(PlayerSlot.Near);
+            score.AddPoint(PlayerSlot.Near);
+            Assert.That(score.AddPoint(PlayerSlot.Near), Is.EqualTo(ScoreChange.Set));
+            Assert.That(score.CompletedSets[0], Is.EqualTo((7, 6)));
+            Assert.That(score.IsTieBreak, Is.False);
+            Assert.That(score.Server, Is.EqualTo(CourtGeometry.Opponent(first)), "who received first in the tie-break serves the next set");
+        }
+
+        [Test]
+        public void Score_TheMatchEndsWhenEnoughSetsAreWon()
+        {
+            var score = new TennisScore(PlayerSlot.Near, MatchRules.ShortSet);
+            for (int i = 0; i < 3; i++) WinGame(score, PlayerSlot.Far);
+            Assert.That(score.MatchOver, Is.False);
+            for (int i = 0; i < 3; i++) score.AddPoint(PlayerSlot.Far);
+            Assert.That(score.AddPoint(PlayerSlot.Far), Is.EqualTo(ScoreChange.Match));
+            Assert.That(score.MatchOver, Is.True);
+            Assert.That(score.MatchWinner, Is.EqualTo(PlayerSlot.Far));
+            Assert.That(score.CompletedSets[0], Is.EqualTo((0, 4)));
+        }
+
+        [Test]
+        public void Session_StopsServingWhenTheMatchIsOver()
+        {
+            var session = new RallySession(BallPhysicsParams.Default, new ShotTuning(), new PlayerMovementTuning(), 9, new MatchRules { SetsToWin = 1, GamesPerSet = 1 });
+            session.Agent(PlayerSlot.Near).IntentSource = new OpponentAI(session.Agent(PlayerSlot.Near), AiLevel.Medium, new System.Random(1));
+            session.Agent(PlayerSlot.Far).IntentSource = new OpponentAI(session.Agent(PlayerSlot.Far), AiLevel.Medium, new System.Random(2));
+            for (int i = 0; i < (int)(600f / Dt) && session.State != SessionState.MatchOver; i++) session.Tick(Dt);
+
+            Assert.That(session.State, Is.EqualTo(SessionState.MatchOver));
+            int played = session.Points(PlayerSlot.Near) + session.Points(PlayerSlot.Far);
+            for (int i = 0; i < (int)(10f / Dt); i++) session.Tick(Dt);
+            Assert.That(session.Points(PlayerSlot.Near) + session.Points(PlayerSlot.Far), Is.EqualTo(played), "no more points after the match");
+        }
+
         [Test]
         public void Score_ASetNeedsATwoGameLead()
         {

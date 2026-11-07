@@ -53,13 +53,16 @@ namespace TennisSim.Tests
         public IEnumerator LoadScene()
         {
             // A stale picture from an earlier run must never pass for this one.
-            if (Directory.Exists(ScreenshotDirectory))
-                foreach (string file in Directory.GetFiles(ScreenshotDirectory, "*.png")) File.Delete(file);
+            foreach (string name in new[] { "rally.png", "contact.png", "serve.png", "cheer.png" })
+            {
+                string file = Path.Combine(ScreenshotDirectory, name);
+                if (File.Exists(file)) File.Delete(file);
+            }
 
             yield return SceneManager.LoadSceneAsync(SceneName);
             game = Object.FindAnyObjectByType<GameManager>();
             Assert.That(game, Is.Not.Null, "The scene has no GameManager.");
-            game.UseBotForNearPlayer();
+            game.StartMatch(new MatchSetup { Rules = MatchRules.BestOfThree, Level = AiLevel.Medium, NearIsAi = true });
             nearRacket = RacketOf(game.nearPlayer);
             farRacket = RacketOf(game.farPlayer);
             hits = points = 0;

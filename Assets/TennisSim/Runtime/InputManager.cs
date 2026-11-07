@@ -55,6 +55,9 @@ namespace TennisSim
 
         public void SetDevices(params InputDevice[] devices) => actions.devices = devices;
 
+        /// <summary>Forgets queued presses, so the button that confirmed a menu does not also toss the first serve.</summary>
+        public void Clear() => edges.Clear();
+
         public PlayerIntent ReadIntent(in PlayerPerception perception)
         {
             var intent = new PlayerIntent

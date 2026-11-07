@@ -4,8 +4,8 @@ the umpire's chair, players' chairs and a scoreboard, with their textures.
 
     blender -b --factory-startup --python make_stadium.py -- <stadium_art_dir>
 
-Writes Stadium.fbx (one mesh per material, named for Unity), Stadium_Layout.json (every seat and
-the scoreboard screen, for the crowd and the score display) and the textures.
+Writes Stadium.fbx (one mesh per material, named for Unity), Stadium_Layout.json (every seat, the
+scoreboard screen and the floodlights, for the crowd, the score display and evening lighting) and the textures.
 
 Everything is laid out in the game's coordinates: X across the court, Y up, Z along it with the far end at +Z.
 The near end, where the camera looks in from, has a low stand so the view over it stays clear.
@@ -232,6 +232,59 @@ def build_bowl(concrete, railing, facade, boards):
                             seg.point(d2, sign * seg.reach(d2), y), seg.point(d1, sign * seg.reach(d1), y), outward)
 
 
+MAST_HEIGHT = 14.0
+LAMP_SIZE = (4.2, 2.2, 0.5)
+
+
+def corner_squares():
+    """
+    Where a tall side stand meets a lower end stand, a tower fills the corner in plan from the end stand's
+    back wall out to the side stand's. Returns (sign_x, sign_z, inner, outer, height) per corner.
+    """
+    squares = []
+    side_rows = ROWS["east"]
+    for sign_z, end in ((1.0, "far"), (-1.0, "near")):
+        inner = ROWS[end] * TREAD
+        outer = side_rows * TREAD + WALL_THICKNESS
+        height = row_height(side_rows - 1) + RAILING
+        for sign_x in (1.0, -1.0):
+            squares.append((sign_x, sign_z, inner, outer, height))
+    return squares
+
+
+def in_tower(p):
+    for sign_x, sign_z, inner, outer, _ in corner_squares():
+        dx = p[0] * sign_x - X0
+        dz = p[2] * sign_z - Z0
+        if inner - 0.3 <= dx <= outer and inner - 0.3 <= dz <= outer:
+            return True
+    return False
+
+
+def build_corner_towers(facade, railing, metal, lamp):
+    """Stair towers close the bowl's corners, and each carries a floodlight mast for evening matches."""
+    floodlights = []
+    for sign_x, sign_z, inner, outer, height in corner_squares():
+        size = outer - inner
+        centre = v3(sign_x * (X0 + (inner + outer) / 2), height / 2, sign_z * (Z0 + (inner + outer) / 2))
+        facade.box(centre, (size, height, size), faces="fblr")
+        top = centre + UP * (height / 2)
+        railing.quad(top + v3(-size / 2, 0, -size / 2), top + v3(size / 2, 0, -size / 2),
+                     top + v3(size / 2, 0, size / 2), top + v3(-size / 2, 0, size / 2), UP)
+
+        to_court = -np.array([centre[0], 0.0, centre[2]])
+        to_court /= np.linalg.norm(to_court)
+        metal.box(top + UP * (MAST_HEIGHT / 2), (0.6, MAST_HEIGHT, 0.6), to_court, faces="fblr")
+        head = top + UP * MAST_HEIGHT
+        metal.box(head, LAMP_SIZE, to_court)
+        face = head + to_court * (LAMP_SIZE[2] / 2 + 0.02)
+        right = v3(to_court[2], 0.0, -to_court[0])
+        hw, hh = LAMP_SIZE[0] / 2 - 0.15, LAMP_SIZE[1] / 2 - 0.15
+        lamp.quad(face - right * hw - UP * hh, face + right * hw - UP * hh, face + right * hw + UP * hh, face - right * hw + UP * hh, to_court)
+        floodlights.append([round(float(c), 3) for c in face])
+    return floodlights
+
+
 def build_parapet(seg, boards):
     """The front of the first row, faced with sponsor boards that read left to right from the court."""
     right = seg.viewer_right()
@@ -278,6 +331,8 @@ def build_seats(blue, white, steps, accent):
                 if abs(s) > limit or in_aisle(seg, s):
                     continue
                 origin = seg.point(depth, s, y)
+                if in_tower(origin):
+                    continue
                 part.box(origin + UP * 0.43, (0.46, 0.06, 0.40), facing, faces="tf")
                 part.box(origin + UP * 0.68 - facing * 0.22, (0.46, 0.44, 0.05), facing, faces="tfb")
                 seats.append((origin, facing))
@@ -463,7 +518,8 @@ def main():
 
     parts = {name: Part(name) for name in (
         "Stadium_Concrete", "Stadium_Steps", "Stadium_Railing", "Stadium_Facade", "Stadium_Accent",
-        "Seats_Blue", "Seats_White", "Furniture_Metal", "Furniture_Seat", "Scoreboard_Frame", "Scoreboard_Screen")}
+        "Seats_Blue", "Seats_White", "Furniture_Metal", "Furniture_Seat", "Scoreboard_Frame", "Scoreboard_Screen",
+        "Floodlight_Metal", "Floodlight_Lamp")}
     parts["Stadium_Boards"] = Part("Stadium_Boards")
 
     build_bowl(parts["Stadium_Concrete"], parts["Stadium_Railing"], parts["Stadium_Facade"], parts["Stadium_Boards"])
@@ -471,6 +527,7 @@ def main():
     build_umpire_chair(parts["Furniture_Metal"], parts["Furniture_Seat"])
     build_player_chairs(parts["Furniture_Metal"], parts["Furniture_Seat"])
     scoreboard = build_scoreboard(parts["Scoreboard_Frame"], parts["Scoreboard_Screen"])
+    floodlights = build_corner_towers(parts["Stadium_Facade"], parts["Stadium_Railing"], parts["Floodlight_Metal"], parts["Floodlight_Lamp"])
 
     objects = [part.build() for part in parts.values() if part.faces]
     export(os.path.join(art_dir, "Stadium.fbx"), objects)
@@ -480,7 +537,8 @@ def main():
         flat.extend([round(float(origin[0]), 3), round(float(origin[1]), 3), round(float(origin[2]), 3),
                      round(float(facing[0]), 3), round(float(facing[2]), 3)])
     layout = {"seatStride": 5, "seats": flat, "scoreboardCenter": scoreboard["center"],
-              "scoreboardWidth": scoreboard["width"], "scoreboardHeight": scoreboard["height"]}
+              "scoreboardWidth": scoreboard["width"], "scoreboardHeight": scoreboard["height"],
+              "floodlights": [c for light in floodlights for c in light]}
     with open(os.path.join(art_dir, "Stadium_Layout.json"), "w") as handle:
         json.dump(layout, handle, separators=(",", ":"))
     log(f"{len(seats)} seats")

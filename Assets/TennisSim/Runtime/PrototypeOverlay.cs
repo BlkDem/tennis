@@ -12,27 +12,27 @@ namespace TennisSim
         const float RpmPerRadS = 60f / (2f * Mathf.PI);
         /// <summary>The layout is designed for this screen height and scaled to the real one.</summary>
         const float ReferenceHeight = 1080f;
-        const float CallDisplaySeconds = 1.6f;
 
         public GameManager game;
         public int fontSize = 22;
+        [Tooltip("The readout is for tuning; the game's own HUD replaces it. F1 shows it.")]
+        public bool showHelp;
 
         string lastShot = "—";
         string lastPoint = "—";
-        string call;
-        float callUntil;
-        bool showHelp = true;
         GUIStyle style;
-        GUIStyle callStyle;
 
         readonly StringBuilder text = new StringBuilder(1024);
 
         void OnEnable() => GameEvents.RallyEvent += OnRallyEvent;
         void OnDisable() => GameEvents.RallyEvent -= OnRallyEvent;
 
+        float frameTime = 1f / 60f;
+
         void Update()
         {
             if (Keyboard.current != null && Keyboard.current.f1Key.wasPressedThisFrame) showHelp = !showHelp;
+            frameTime = Mathf.Lerp(frameTime, Time.unscaledDeltaTime, 0.05f);
         }
 
         void OnRallyEvent(RallyEvent e)
@@ -44,36 +44,19 @@ namespace TennisSim
                     lastShot = $"{SlotName(e.Slot)}: {KindName(s.Kind)}{SideText(s)} — {s.Quality} ({s.Score:F2}{TimingText(s.TimingError)}), "
                              + $"{s.Velocity.magnitude * KmhPerMs:F0} км/ч, {s.Spin.magnitude * RpmPerRadS:F0} об/мин";
                     break;
-                case RallyEventType.Fault:
-                    ShowCall(e.ServeNumber == 2 ? "Двойная ошибка" : "Ошибка");
-                    break;
-                case RallyEventType.Let:
-                    ShowCall("Сетка, переподача");
-                    break;
                 case RallyEventType.PointEnded:
                     lastPoint = $"очко: {SlotName(e.Slot)} ({ReasonName(e.Reason)})";
-                    if (e.Reason == PointEndReason.Ace) ShowCall("Эйс!");
-                    else if (e.ScoreChange == ScoreChange.Game) ShowCall($"Гейм: {SlotName(e.Slot)}");
-                    else if (e.ScoreChange == ScoreChange.Set) ShowCall($"Сет: {SlotName(e.Slot)}");
                     break;
             }
         }
 
-        void ShowCall(string message)
-        {
-            call = message;
-            callUntil = Time.time + CallDisplaySeconds;
-        }
-
         void OnGUI()
         {
-            if (game == null || game.Session == null) return;
+            if (game == null || game.Session == null || !showHelp) return;
 
             float scale = Screen.height / ReferenceHeight;
             style ??= new GUIStyle(GUI.skin.label) { richText = true, wordWrap = false };
-            callStyle ??= new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold };
             style.fontSize = Mathf.RoundToInt(fontSize * scale);
-            callStyle.fontSize = Mathf.RoundToInt(fontSize * 2.4f * scale);
 
             RallySession session = game.Session;
             TennisScore score = session.Score;
@@ -86,27 +69,20 @@ namespace TennisSim
             if (session.State == SessionState.AwaitingServe)
                 text.Append("<b>Подача: нажмите — подброс, отпустите — удар, когда мяч опускается. H плоская, U резаная, остальные кнопки — кик</b>\n");
 
+            text.Append($"{1f / Mathf.Max(frameTime, 1e-4f):F0} FPS ({frameTime * 1000f:F1} мс), {Screen.width}x{Screen.height}   ");
             text.Append("Геймпадов: ").Append(game.inputManager.GamepadCount);
-            text.Append("   дальний игрок: ").Append(game.FarIsBot ? "бот (F2)" : "человек (F2)");
+            text.Append("   дальний игрок: ").Append(game.FarIsBot ? $"ИИ, {LevelName(game.AiLevel)} (F2, сложность F4)" : "человек (F2)");
             text.Append("   автопозиция: ").Append(game.AutoPositioning ? "вкл (F3)" : "выкл (F3)").Append('\n');
 
-            if (showHelp)
-            {
-                text.Append("\nНажать — подготовка, отпустить — замах. Точный момент = Perfect; удержание через мяч = Good.\n");
-                text.Append("Рано — мяч уходит поперёк корпуса, поздно — в другую сторону. Высокий мяч бьётся сильнее, мяч на вытянутой руке — только защитой.\n");
-                text.Append("Перед подачей стик двигает вдоль задней линии, во время подброса — прицел в квадрате.\n");
-                text.Append("Клавиатура: WASD ход/прицел, Shift бег, Space авто, J справа, K слева, U резаный, H плоский, L с лёта, I свеча, O укороченный\n");
-                text.Append("Геймпад: левый стик ход/прицел, правый стик прицел, RT бег, A авто, B резаный, X плоский, Y свеча, RB с лёта, LB укороченный, крестовина ←/→\n");
-                text.Append("Игрок 2: стрелки, правый Shift, Num0 авто, Num1 справа, Num2 слева, Num3 с лёта, Num4 резаный, Num5 плоский, Num6 свеча, Num7 укороченный\n");
-                text.Append("F1 скрыть подсказку   Alt+Enter оконный режим");
-            }
+            text.Append("\nКлавиатура: WASD ход/прицел, Shift бег, Space авто, J справа, K слева, U резаный, H плоский, L с лёта, I свеча, O укороченный\n");
+            text.Append("Геймпад: левый стик ход/прицел, правый стик прицел, RT бег, A авто, B резаный, X плоский, Y свеча, RB с лёта, LB укороченный, крестовина ←/→\n");
+            text.Append("Игрок 2: стрелки, правый Shift, Num0 авто, Num1 справа, Num2 слева, Num3 с лёта, Num4 резаный, Num5 плоский, Num6 свеча, Num7 укороченный\n");
+            text.Append("F1 скрыть   Esc / Start пауза   Alt+Enter оконный режим");
 
+            // Below the HUD's score panel.
             float margin = 16f * scale;
-            var area = new Rect(margin, margin * 0.75f, Screen.width - margin * 2f, Screen.height - margin * 1.5f);
+            var area = new Rect(margin, 150f * scale, Screen.width - margin * 2f, Screen.height - 160f * scale);
             DrawShadowed(area, text.ToString(), style);
-
-            if (call != null && Time.time < callUntil)
-                DrawShadowed(new Rect(0f, Screen.height * 0.3f, Screen.width, callStyle.fontSize * 1.6f), call, callStyle);
         }
 
         static void DrawShadowed(Rect area, string content, GUIStyle guiStyle)
@@ -123,7 +99,7 @@ namespace TennisSim
             if (score.IsDeuce) return games + "ровно";
             PlayerSlot? advantage = score.Advantage;
             if (advantage.HasValue) return games + "больше: " + SlotName(advantage.Value);
-            return games + TennisScore.PointCall(score.GamePoints(PlayerSlot.Near)) + ":" + TennisScore.PointCall(score.GamePoints(PlayerSlot.Far));
+            return games + (score.IsTieBreak ? "тай-брейк " : "") + score.PointText(PlayerSlot.Near) + ":" + score.PointText(PlayerSlot.Far);
         }
 
         static string SideText(in ShotResult s)
@@ -137,6 +113,8 @@ namespace TennisSim
             if (Mathf.Abs(error) < 0.02f) return "";
             return error < 0f ? $", рано {-error:F2} с" : $", поздно {error:F2} с";
         }
+
+        static string LevelName(AiLevel level) => level == AiLevel.Easy ? "лёгкий" : level == AiLevel.Hard ? "сильный" : "средний";
 
         static string SlotName(PlayerSlot slot) => slot == PlayerSlot.Near ? "Игрок 1" : "Игрок 2";
 

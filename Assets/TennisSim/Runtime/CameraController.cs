@@ -14,7 +14,14 @@ namespace TennisSim
         public Transform followTarget;
         public Transform lookTarget;
         public PlayerController trackedPlayer;
+        public PlayerController otherPlayer;
         public BallController ball;
+
+        [Header("Close-up after a game")]
+        [Tooltip("Seconds the camera stays on the winner of a game or set. The match winner it keeps.")]
+        public float closeUpSeconds = 2.4f;
+        [Tooltip("Where the camera stands relative to the winner, towards the net, and how high.")]
+        public Vector3 closeUpCamera = new Vector3(1.2f, 1.9f, 4.2f);
 
         [Header("Framing")]
         [Range(25f, 70f)] public float fieldOfView = 42f;
@@ -38,19 +45,50 @@ namespace TennisSim
 
         Vector3 followVelocity;
         Vector3 lookVelocity;
+        PlayerController closeUpOn;
+        float closeUpUntil;
+        CinemachineFollow follow;
 
         void Start()
         {
+            follow = virtualCamera != null ? virtualCamera.GetComponent<CinemachineFollow>() : null;
             followTarget.position = DesiredFollow();
             lookTarget.position = DesiredLook();
         }
 
+        void OnEnable() => GameEvents.RallyEvent += OnRallyEvent;
+        void OnDisable() => GameEvents.RallyEvent -= OnRallyEvent;
+
+        void OnRallyEvent(RallyEvent e)
+        {
+            if (e.Type == RallyEventType.ServeToss)
+            {
+                closeUpUntil = 0f;
+                return;
+            }
+            if (e.Type != RallyEventType.PointEnded || e.ScoreChange == ScoreChange.Point) return;
+            closeUpOn = e.Slot == trackedPlayer.Agent.Slot ? trackedPlayer : otherPlayer;
+            closeUpUntil = e.ScoreChange == ScoreChange.Match ? float.PositiveInfinity : Time.time + closeUpSeconds;
+        }
+
         void LateUpdate()
         {
-            followTarget.position = Vector3.SmoothDamp(followTarget.position, DesiredFollow(), ref followVelocity, followSmoothing);
-            lookTarget.position = Vector3.SmoothDamp(lookTarget.position, DesiredLook(), ref lookVelocity, lookSmoothing);
+            bool closeUp = closeUpOn != null && Time.time < closeUpUntil;
+            Vector3 desiredFollow = closeUp ? CloseUpFollow() : DesiredFollow();
+            Vector3 desiredLook = closeUp ? closeUpOn.Position + Vector3.up * 1.35f : DesiredLook();
+            followTarget.position = Vector3.SmoothDamp(followTarget.position, desiredFollow, ref followVelocity, followSmoothing);
+            lookTarget.position = Vector3.SmoothDamp(lookTarget.position, desiredLook, ref lookVelocity, lookSmoothing);
 
             if (virtualCamera != null) virtualCamera.Lens.FieldOfView = fieldOfView;
+        }
+
+        /// <summary>The camera hangs at a fixed offset from the follow target, so place the target where that offset puts the camera in front of the winner.</summary>
+        Vector3 CloseUpFollow()
+        {
+            float towardsNet = -Mathf.Sign(closeUpOn.Position.z);
+            Vector3 camera = closeUpOn.Position + new Vector3(closeUpCamera.x, closeUpCamera.y, closeUpCamera.z * towardsNet);
+            Vector3 offset = follow != null ? follow.FollowOffset : new Vector3(0f, 8f, -11.5f);
+            return camera - offset;
         }
 
         Vector3 DesiredFollow()

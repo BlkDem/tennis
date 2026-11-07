@@ -47,6 +47,7 @@ namespace TennisSim.Tests
             yield return SceneManager.LoadSceneAsync(SceneName);
             game = Object.FindAnyObjectByType<GameManager>();
             Assert.That(game, Is.Not.Null);
+            game.StartMatch(MatchSetup.Default);
             near = game.Session.Agent(PlayerSlot.Near);
             nearHit = false;
             GameEvents.RallyEvent += OnRallyEvent;

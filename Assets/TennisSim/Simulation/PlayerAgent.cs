@@ -34,6 +34,7 @@ namespace TennisSim.Simulation
         public bool AutoPositioning { get; set; } = true;
 
         public Vector3 Position => Movement.Position;
+        public ShotTuning ShotTuning => shotTuning;
 
         public PlayerAgent(PlayerSlot slot, PlayerMovementTuning movementTuning, ShotTuning shotTuning, in BallPhysicsParams physics, Random rng)
         {
