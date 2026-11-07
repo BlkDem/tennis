@@ -77,14 +77,14 @@ namespace TennisSim.EditorTools
             "Volley_Prep", "Volley_Swing", "Smash_Prep", "Smash_Swing", "Recovery",
         };
 
-        /// <summary>Whole-body serve states. The animation controller moves between them, so they have no transitions.</summary>
-        static readonly string[] ServeStates = { "Serve_Ready", "Serve_Toss", "Serve_Swing" };
+        /// <summary>Whole-body states the animation controller moves between itself, so they have no transitions.</summary>
+        static readonly string[] ServeStates = { "Serve_Ready", "Serve_Toss", "Serve_Swing", "SplitStep" };
 
         static readonly string[] AllClips = LoopingClips
             .Concat(new[]
             {
                 "Forehand_Swing", "Backhand_Swing", "ForehandSlice_Swing", "BackhandSlice_Swing", "Volley_Swing", "Smash_Swing",
-                "Serve_Toss", "Serve_Swing", "Recovery", "Celebrate", "PointLost",
+                "Serve_Toss", "Serve_Swing", "SplitStep", "Recovery", "Celebrate", "PointLost",
             })
             .ToArray();
 
@@ -663,8 +663,8 @@ namespace TennisSim.EditorTools
 
             BallController ball = BuildBall(m);
             AnimatorController animator = BuildAnimator();
-            PlayerController near = BuildPlayer("Player Near", m.NearPlayer, m, animator);
-            PlayerController far = BuildPlayer("Player Far", m.FarPlayer, m, animator);
+            PlayerController near = BuildPlayer("Player Near", m.NearPlayer, m, animator, ball);
+            PlayerController far = BuildPlayer("Player Far", m.FarPlayer, m, animator, ball);
 
             var inputManager = new GameObject("InputManager").AddComponent<InputManager>();
             inputManager.actions = Load<InputActionAsset>(ControlsPath);
@@ -1056,7 +1056,7 @@ namespace TennisSim.EditorTools
         }
 
         /// <summary>The model sits under a plain root, so replacing it does not disturb the components game code uses.</summary>
-        static PlayerController BuildPlayer(string name, Material kit, Materials m, AnimatorController controller)
+        static PlayerController BuildPlayer(string name, Material kit, Materials m, AnimatorController controller, BallController ball)
         {
             var root = new GameObject(name);
             var player = root.AddComponent<PlayerController>();
@@ -1080,6 +1080,9 @@ namespace TennisSim.EditorTools
                 skin.sharedMaterial = MaterialForPart(skin.name, kit, m);
                 if (skin.name == "Strings") skin.shadowCastingMode = ShadowCastingMode.Off;
             }
+
+            // Fits the clips to the ball after the Animator: racket to the ball, bent knees for low balls, eyes on the ball.
+            root.AddComponent<PlayerIkRig>().ball = ball;
             return player;
         }
 

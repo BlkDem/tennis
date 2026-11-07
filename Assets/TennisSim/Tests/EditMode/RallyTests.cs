@@ -226,7 +226,7 @@ namespace TennisSim.Tests
             var session = new RallySession(BallPhysicsParams.Default, new ShotTuning(), new PlayerMovementTuning(), 9, new MatchRules { SetsToWin = 1, GamesPerSet = 1 });
             session.Agent(PlayerSlot.Near).IntentSource = new OpponentAI(session.Agent(PlayerSlot.Near), AiLevel.Medium, new System.Random(1));
             session.Agent(PlayerSlot.Far).IntentSource = new OpponentAI(session.Agent(PlayerSlot.Far), AiLevel.Medium, new System.Random(2));
-            for (int i = 0; i < (int)(600f / Dt) && session.State != SessionState.MatchOver; i++) session.Tick(Dt);
+            for (int i = 0; i < (int)(1500f / Dt) && session.State != SessionState.MatchOver; i++) session.Tick(Dt);
 
             Assert.That(session.State, Is.EqualTo(SessionState.MatchOver));
             int played = session.Points(PlayerSlot.Near) + session.Points(PlayerSlot.Far);

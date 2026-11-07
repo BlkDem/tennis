@@ -33,6 +33,8 @@ namespace TennisSim.Simulation
         ShotButton? bufferedPress;
 
         public SwingPhase Phase { get; private set; }
+        /// <summary>When the current or last swing started; the racket is at its sweet spot <see cref="ShotTuning.SwingLatency"/> later.</summary>
+        public float SwingStart => swingStart;
         public ShotButton ActiveButton { get; private set; }
         public ContactPlan Plan { get; private set; }
         public HandSide DisplaySide { get; private set; }

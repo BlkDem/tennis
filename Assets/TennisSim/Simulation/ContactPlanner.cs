@@ -24,8 +24,9 @@ namespace TennisSim.Simulation
         public static Vector3 Offset(PlayerSlot slot, HandSide side, float ballHeight, ShotTuning t)
         {
             bool overhead = ballHeight >= t.SmashMinHeight;
-            float lateral = overhead ? t.OverheadLateral : t.StrikeLateral;
-            float forward = overhead ? t.OverheadForward : t.StrikeForward;
+            bool backhand = side == HandSide.Backhand;
+            float lateral = overhead ? t.OverheadLateral : backhand ? t.BackhandLateral : t.StrikeLateral;
+            float forward = overhead ? t.OverheadForward : backhand ? t.BackhandForward : t.StrikeForward;
             float sideSign = side == HandSide.Forehand ? 1f : -1f;
             return Right(slot) * (lateral * sideSign) + Forward(slot) * forward;
         }

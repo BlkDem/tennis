@@ -474,10 +474,11 @@ FOREHAND_WHIP = make_pose(
     elbow_r=(0.8, -0.4, -0.5),
     elbow_l=(-0.7, 0.0, -0.7),
 )
+# Contact poses put the middle of the strings at the game's strike zone (ShotTuning): report_contact_heads prints where they land.
 FOREHAND_CONTACT = make_pose(
     spine_rot=(5.0, -4.0, 0.0),
     chest_rot=(6.0, -6.0, -8.0),
-    grip=(0.56, 0.24, 1.0),
+    grip=(0.56, 0.11, 0.93),
     racket=(0.82, 0.56, 0.08),
     face=(-0.55, 0.82, 0.08),
     hand_l=(-0.28, 0.28, 1.08),
@@ -527,9 +528,11 @@ BACKHAND_WHIP = make_pose(
     elbow_l=(-0.8, -0.4, -0.5),
 )
 BACKHAND_CONTACT = make_pose(
-    spine_rot=(5.0, 2.0, 0.0),
-    chest_rot=(6.0, 2.0, 8.0),
-    grip=(-0.46, 0.3, 1.0),
+    pelvis_pos=(0.0, 0.0, -0.19),
+    pelvis_rot=(9.0, 0.0, 0.0),
+    spine_rot=(12.0, 2.0, 0.0),
+    chest_rot=(8.0, 2.0, 8.0),
+    grip=(-0.5, 0.3, 0.86),
     racket=(-0.84, 0.52, 0.06),
     face=(0.52, 0.85, 0.08),
     elbow_r=(0.3, 0.2, -0.9),
@@ -569,7 +572,7 @@ FOREHAND_SLICE_BACK = make_pose(
 FOREHAND_SLICE_CONTACT = make_pose(
     spine_rot=(5.0, -2.0, 0.0),
     chest_rot=(6.0, -4.0, -5.0),
-    grip=(0.55, 0.26, 1.05),
+    grip=(0.51, 0.14, 0.88),
     racket=(0.85, 0.45, 0.25),
     face=(-0.45, 0.75, 0.48),
     hand_l=(-0.3, 0.25, 1.05),
@@ -600,9 +603,11 @@ BACKHAND_SLICE_BACK = make_pose(
     elbow_l=(-0.8, -0.3, -0.5),
 )
 BACKHAND_SLICE_CONTACT = make_pose(
-    spine_rot=(5.0, 0.0, 0.0),
-    chest_rot=(6.0, 0.0, 6.0),
-    grip=(-0.5, 0.28, 1.05),
+    pelvis_pos=(0.0, 0.0, -0.2),
+    pelvis_rot=(9.0, 0.0, 0.0),
+    spine_rot=(13.0, 0.0, 0.0),
+    chest_rot=(8.0, 0.0, 6.0),
+    grip=(-0.5, 0.33, 0.8),
     racket=(-0.85, 0.45, 0.25),
     face=(0.45, 0.75, 0.48),
     hand_l=(-0.55, -0.3, 1.12),
@@ -635,7 +640,7 @@ VOLLEY_BACK = make_pose(
 VOLLEY_CONTACT = make_pose(
     spine_rot=(5.0, 2.0, 0.0),
     chest_rot=(6.0, 2.0, 0.0),
-    grip=(0.5, 0.42, 1.16),
+    grip=(0.52, 0.12, 1.05),
     racket=(0.72, 0.58, 0.36),
     face=(-0.45, 0.85, 0.18),
     hand_l=(-0.22, 0.34, 1.12),
@@ -670,7 +675,7 @@ SMASH_CONTACT = make_pose(
     spine_rot=(6.0, -2.0, 0.0),
     chest_rot=(10.0, -8.0, 0.0),
     head_rot=(-25.0, 0.0, 0.0),
-    grip=(0.3, 0.3, 1.86),
+    grip=(0.17, 0.03, 1.9),
     racket=(0.12, 0.42, 0.9),
     face=(-0.1, 0.92, -0.4),
     hand_l=(-0.24, 0.32, 1.25),
@@ -1032,7 +1037,42 @@ def author_shots(solver):
     ])
 
 
+SPLIT_UNWEIGHT = make_pose(
+    pelvis_pos=(0.0, 0.0, -0.03),
+    foot_l=(-0.22, 0.0, 0.245),
+    foot_r=(0.22, 0.0, 0.245),
+    foot_l_rot=(-10.0, -12.0),
+    foot_r_rot=(-10.0, 12.0),
+)
+SPLIT_AIR = make_pose(
+    pelvis_pos=(0.0, 0.0, 0.0),
+    foot_l=(-0.25, 0.02, 0.29),
+    foot_r=(0.25, 0.02, 0.29),
+    foot_l_rot=(-8.0, -14.0),
+    foot_r_rot=(-8.0, 14.0),
+)
+SPLIT_LAND = make_pose(
+    pelvis_pos=(0.0, -0.02, -0.17),
+    pelvis_rot=(9.0, 0.0, 0.0),
+    spine_rot=(7.0, 0.0, 0.0),
+    foot_l=(-0.37, 0.0, 0.225),
+    foot_r=(0.37, 0.0, 0.225),
+    foot_l_rot=(0.0, -20.0),
+    foot_r_rot=(0.0, 20.0),
+    grip=(0.13, 0.4, 0.92),
+    hand_l=(-0.15, 0.32, 0.97),
+)
+
+
 def author_reactions(solver):
+    # The split step: a small hop as the opponent strikes, landing wide and low, ready to push off either way.
+    author_keys(solver, "SplitStep", [
+        (0.0, READY),
+        (0.07, SPLIT_UNWEIGHT),
+        (0.14, SPLIT_AIR),
+        (0.22, SPLIT_LAND),
+        (0.42, READY),
+    ])
     author_keys(solver, "Celebrate", [
         (0.0, READY),
         (0.2, CELEBRATE_FIST),
@@ -1048,6 +1088,23 @@ def author_reactions(solver):
         (1.5, POINT_LOST_SLUMP),
         (2.0, STANDING),
     ])
+
+
+def report_contact_heads(solver, strings):
+    """
+    Prints where the middle of the strings is in each contact pose, in the game's frame (r, f, u from the feet).
+    The game's strike zone (ShotTuning.StrikeLateral / StrikeForward / IdealContactHeight) should match these:
+    the closer they are, the less the runtime IK has to bend the arm.
+    """
+    corners = [v.co for v in strings.data.vertices]
+    centre = sum(corners, Vector()) / len(corners)
+    on_racket = solver.rest["Racket"].inverted() @ centre
+    for name, pose in (("forehand", FOREHAND_CONTACT), ("backhand", BACKHAND_CONTACT),
+                       ("forehand slice", FOREHAND_SLICE_CONTACT), ("backhand slice", BACKHAND_SLICE_CONTACT),
+                       ("volley", VOLLEY_CONTACT), ("smash", SMASH_CONTACT), ("serve", SERVE_CONTACT)):
+        world = solver.solve(pose)
+        head = world["Racket"] @ on_racket
+        log(f"contact head {name}: r {-head.x:.2f} f {-head.y:.2f} u {head.z:.2f}")
 
 
 # ---------------------------------------------------------------- Contact sheet
@@ -1205,6 +1262,7 @@ def main():
     author_locomotion(solver)
     author_shots(solver)
     author_reactions(solver)
+    report_contact_heads(solver, racket_parts["Strings"])
 
     if sheet_path:
         render_contact_sheet(rig, sheet_path)

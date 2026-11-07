@@ -19,6 +19,7 @@ namespace TennisSim
         Vector3 currentPosition;
 
         public PlayerAgent Agent { get; private set; }
+        public RallySession Session => session;
         public Vector3 Position { get; private set; }
 
         public void Bind(RallySession rally, PlayerSlot slot)
@@ -57,6 +58,14 @@ namespace TennisSim
         {
             Vector3 forward = StrikeZone.Forward(Agent.Slot);
             Vector3 facing = forward;
+
+            // Walking to the next point: look where you are going.
+            Vector3 velocity = Agent.Movement.Velocity;
+            if (Agent.WalkTarget.HasValue && velocity.sqrMagnitude > 0.25f)
+            {
+                transform.rotation = Quaternion.RotateTowards(transform.rotation, Quaternion.LookRotation(velocity), turnSpeed * 0.6f * Time.deltaTime);
+                return;
+            }
 
             // A shot or a serve faces the net: the clips are authored for a strike zone measured from there.
             SwingPhase phase = Agent.Shot.Phase;

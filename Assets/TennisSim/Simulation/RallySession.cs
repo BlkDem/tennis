@@ -34,6 +34,12 @@ namespace TennisSim.Simulation
         const float TossPredictionHorizon = 2.5f;
         const float PointOverDuration = 2.2f;
         const float ServeCallDuration = 1.3f;
+        /// <summary>After a point the players react first, then walk to where the next one starts.</summary>
+        const float WalkAfterPoint = 1.6f;
+        const float WalkAfterServeCall = 0.5f;
+        /// <summary>The next serve waits for both players to be in place, but never longer than this after the call.</summary>
+        const float MaxBetweenPoints = 6f;
+        const float InPlace = 0.35f;
         const float ServerBehindBaseline = 0.15f;
         const float ServerOffsetX = 0.9f;
         const float ServerMaxX = CourtGeometry.HalfSinglesWidth - 0.3f;
@@ -50,6 +56,7 @@ namespace TennisSim.Simulation
         readonly int[] points = new int[2];
 
         BallState ball;
+        float stateStartedAt;
         float stateEndsAt;
         float serveContactTime = float.NaN;
 
@@ -123,15 +130,18 @@ namespace TennisSim.Simulation
 
                 case SessionState.ServeCalled:
                     StepBall(dt);
-                    if (Time >= stateEndsAt) StartServe();
+                    if (WalkToPlaces(WalkAfterServeCall)) StartServe();
                     break;
 
                 case SessionState.PointOver:
                     StepBall(dt);
-                    if (Time >= stateEndsAt)
+                    if (Score.MatchOver)
                     {
-                        if (Score.MatchOver) State = SessionState.MatchOver;
-                        else StartPoint();
+                        if (Time >= stateEndsAt) State = SessionState.MatchOver;
+                    }
+                    else if (WalkToPlaces(WalkAfterPoint))
+                    {
+                        StartPoint();
                     }
                     break;
 
@@ -218,6 +228,7 @@ namespace TennisSim.Simulation
             events.Add(new RallyEvent { Type = call == ServeCall.Fault ? RallyEventType.Fault : RallyEventType.Let, Slot = Server, ServeNumber = ServeNumber });
             if (call == ServeCall.Fault) ServeNumber = 2;
             State = SessionState.ServeCalled;
+            stateStartedAt = Time;
             stateEndsAt = Time + ServeCallDuration;
             trajectory.Clear();
         }
@@ -225,6 +236,7 @@ namespace TennisSim.Simulation
         void EndPoint(PlayerSlot winner, PointEndReason reason)
         {
             State = SessionState.PointOver;
+            stateStartedAt = Time;
             stateEndsAt = Time + PointOverDuration;
             points[(int)winner]++;
             ScoreChange change = Score.AddPoint(winner);
@@ -246,18 +258,39 @@ namespace TennisSim.Simulation
             serveContactTime = float.NaN;
             BallRevision++;
 
-            bool deuce = Score.DeuceSide;
-            ServeBox = CourtGeometry.ServiceBoxFor(Server, deuce);
-            float side = CourtGeometry.ServeSideSign(Server, deuce);
-
-            float serverZ = -CourtGeometry.ForwardSign(Server) * (CourtGeometry.HalfLength + ServerBehindBaseline);
-            agents[(int)Server].ResetForPoint(new Vector3(side * ServerOffsetX, 0f, serverZ));
-
-            float receiverZ = -CourtGeometry.ForwardSign(Receiver) * (CourtGeometry.HalfLength + ReceiverBehindBaseline);
-            agents[(int)Receiver].ResetForPoint(new Vector3(-side * ReceiverOffsetX, 0f, receiverZ));
+            ServeBox = CourtGeometry.ServiceBoxFor(Server, Score.DeuceSide);
+            ServePositions(out Vector3 server, out Vector3 receiver);
+            agents[(int)Server].ResetForPoint(server);
+            agents[(int)Receiver].ResetForPoint(receiver);
 
             HoldBallInServersHand();
         }
+
+        /// <summary>Where the server and receiver stand for the next serve, from the side the score says.</summary>
+        void ServePositions(out Vector3 server, out Vector3 receiver)
+        {
+            float side = CourtGeometry.ServeSideSign(Server, Score.DeuceSide);
+            server = new Vector3(side * ServerOffsetX, 0f, -CourtGeometry.ForwardSign(Server) * (CourtGeometry.HalfLength + ServerBehindBaseline));
+            receiver = new Vector3(-side * ReceiverOffsetX, 0f, -CourtGeometry.ForwardSign(Receiver) * (CourtGeometry.HalfLength + ReceiverBehindBaseline));
+        }
+
+        /// <summary>
+        /// Between points, after a moment to react, both players walk to their places. True once the call has been
+        /// shown long enough and both have arrived, or when waiting any longer would hold up the game.
+        /// </summary>
+        bool WalkToPlaces(float delay)
+        {
+            if (Time < stateStartedAt + delay) return false;
+            ServePositions(out Vector3 server, out Vector3 receiver);
+            PlayerAgent serving = agents[(int)Server];
+            PlayerAgent receiving = agents[(int)Receiver];
+            serving.WalkTarget = server;
+            receiving.WalkTarget = receiver;
+            bool arrived = Flat(serving.Position - server) < InPlace && Flat(receiving.Position - receiver) < InPlace;
+            return (Time >= stateEndsAt && arrived) || Time >= stateStartedAt + MaxBetweenPoints;
+        }
+
+        static float Flat(Vector3 v) => new Vector2(v.x, v.z).magnitude;
 
         /// <summary>Before the toss the server may walk along the baseline, but only on their half of it.</summary>
         void KeepServerBehindTheirHalfOfTheBaseline()

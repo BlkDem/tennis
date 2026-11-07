@@ -85,6 +85,9 @@ namespace TennisSim.Simulation
         [Header("Reach, metres")]
         public float StrikeLateral = 0.85f;
         public float StrikeForward = 0.35f;
+        [Tooltip("A two-handed backhand meets the ball closer to the body and a little further in front than a forehand.")]
+        public float BackhandLateral = 0.62f;
+        public float BackhandForward = 0.45f;
         public float OverheadLateral = 0.25f;
         public float OverheadForward = 0.2f;
         public float ReachRadius = 0.95f;

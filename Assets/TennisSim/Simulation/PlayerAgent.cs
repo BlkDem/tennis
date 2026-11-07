@@ -35,6 +35,9 @@ namespace TennisSim.Simulation
 
         public Vector3 Position => Movement.Position;
         public ShotTuning ShotTuning => shotTuning;
+        /// <summary>Between points the session walks the player to their next place; their own input waits.</summary>
+        public Vector3? WalkTarget { get; set; }
+        public const float BetweenPointsWalkSpeed = 3f;
 
         public PlayerAgent(PlayerSlot slot, PlayerMovementTuning movementTuning, ShotTuning shotTuning, in BallPhysicsParams physics, Random rng)
         {
@@ -51,6 +54,7 @@ namespace TennisSim.Simulation
             Movement.Teleport(position);
             Shot.ResetForPoint();
             Serve.Reset();
+            WalkTarget = null;
             recovering = false;
             committedToContact = false;
             aim = Vector2.zero;
@@ -59,6 +63,13 @@ namespace TennisSim.Simulation
         public ShotResult? Tick(in PlayerPerception p, float dt)
         {
             PlayerIntent intent = IntentSource != null ? IntentSource.ReadIntent(p) : default;
+            if (WalkTarget.HasValue)
+            {
+                // A shot still being prepared when the point ended is put away.
+                Shot.ResetForPoint();
+                Movement.Tick(Movement.ArriveVelocity(WalkTarget.Value, BetweenPointsWalkSpeed), dt);
+                return null;
+            }
             UpdateAim(intent);
 
             if (p.IsServer && (p.AwaitingServe || p.Tossing)) return TickServing(p, intent, dt);
