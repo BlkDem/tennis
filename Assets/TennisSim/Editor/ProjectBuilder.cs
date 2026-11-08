@@ -31,6 +31,8 @@ namespace TennisSim.EditorTools
         const string PlayerArtDir = Root + "/Art/Player";
         const string CourtArtDir = Root + "/Art/Court";
         const string StadiumArtDir = Root + "/Art/Stadium";
+        const string UiFontPath = Root + "/Fonts/Inter-Regular.ttf";
+        const string UiBoldFontPath = Root + "/Fonts/Inter-Bold.ttf";
         const string StadiumModelPath = StadiumArtDir + "/Stadium.fbx";
         const string StadiumLayoutPath = StadiumArtDir + "/Stadium_Layout.json";
         const string CrowdShaderPath = Root + "/Shaders/Crowd.shader";
@@ -42,6 +44,7 @@ namespace TennisSim.EditorTools
         const string BuiltinRendererPath = "Assets/UniversalRenderer.asset";
         const string ControlsPath = SettingsDir + "/TennisControls.inputactions";
         const string WindowsPlayerPath = "Build/Windows/TennisSimulator.exe";
+        const string WebGLPlayerPath = "Build/WebGL";
         const string PlayerModelPath = PlayerArtDir + "/Player.fbx";
         const string BallModelPath = PlayerArtDir + "/Ball.fbx";
         const string AnimatorPath = GeneratedDir + "/Player.controller";
@@ -138,6 +141,37 @@ namespace TennisSim.EditorTools
                 throw new System.InvalidOperationException($"[Tennis] Player build failed: {summary.result}, {summary.totalErrors} errors.");
 
             Debug.Log("[Tennis] Player built: " + Path.GetFullPath(WindowsPlayerPath));
+        }
+
+        /// <summary>
+        /// The browser version, into Build/WebGL. Gzip with decompression in the loader, so any static web server
+        /// can serve it without special headers. Run in batch with:
+        /// -executeMethod TennisSim.EditorTools.ProjectBuilder.BuildWebGL
+        /// </summary>
+        [MenuItem("Tennis/Build WebGL")]
+        public static void BuildWebGL()
+        {
+            PlayerSettings.WebGL.compressionFormat = WebGLCompressionFormat.Gzip;
+            PlayerSettings.WebGL.decompressionFallback = true;
+            PlayerSettings.WebGL.dataCaching = true;
+            PlayerSettings.WebGL.template = "PROJECT:Tennis";
+            PlayerSettings.WebGL.exceptionSupport = WebGLExceptionSupport.ExplicitlyThrownExceptionsOnly;
+            PlayerSettings.WebGL.nameFilesAsHashes = false;
+
+            string output = WebGLPlayerPath;
+            if (Directory.Exists(output)) Directory.Delete(output, true);
+            var options = new BuildPlayerOptions
+            {
+                scenes = new[] { ScenePath },
+                locationPathName = output,
+                target = BuildTarget.WebGL,
+            };
+
+            BuildSummary summary = BuildPipeline.BuildPlayer(options).summary;
+            if (summary.result != BuildResult.Succeeded)
+                throw new System.InvalidOperationException($"[Tennis] WebGL build failed: {summary.result}, {summary.totalErrors} errors.");
+
+            Debug.Log($"[Tennis] WebGL built: {Path.GetFullPath(output)}, {summary.totalSize / (1024f * 1024f):F1} MB");
         }
 
         static void ConfigureProject()
@@ -682,7 +716,9 @@ namespace TennisSim.EditorTools
             BuildAudio(game);
 
             new GameObject("PrototypeOverlay").AddComponent<PrototypeOverlay>().game = game;
-            new GameObject("HUD").AddComponent<HudController>().game = game;
+            var hudController = new GameObject("HUD").AddComponent<HudController>();
+            hudController.game = game;
+            hudController.font = UiFont();
 
             BuildCamera(near, far, ball);
 
@@ -943,7 +979,7 @@ namespace TennisSim.EditorTools
             textObject.transform.SetParent(parent, false);
             textObject.transform.localPosition = localPosition;
             var text = textObject.AddComponent<TextMesh>();
-            Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            Font font = UiFont();
             text.font = font;
             text.fontSize = FontSize;
             text.fontStyle = FontStyle.Bold;
@@ -957,6 +993,27 @@ namespace TennisSim.EditorTools
             renderer.sharedMaterial = font.material;
             renderer.shadowCastingMode = ShadowCastingMode.Off;
             return text;
+        }
+
+        /// <summary>
+        /// The UI font. The built-in font has no Cyrillic of its own and borrows it from the system fonts, which a
+        /// browser does not offer, so the game carries Inter. The bold face is referenced so that bold text uses it
+        /// rather than a smeared copy of the regular one.
+        /// </summary>
+        static Font UiFont()
+        {
+            if (AssetImporter.GetAtPath(UiFontPath) is TrueTypeFontImporter importer)
+            {
+                var bold = AssetDatabase.LoadAssetAtPath<Font>(UiBoldFontPath);
+                if (bold != null && (importer.fontReferences == null || importer.fontReferences.Length != 1 || importer.fontReferences[0] != bold))
+                {
+                    importer.fontReferences = new[] { bold };
+                    importer.SaveAndReimport();
+                }
+            }
+            var font = AssetDatabase.LoadAssetAtPath<Font>(UiFontPath);
+            if (font == null) throw new System.InvalidOperationException($"UI font missing: {UiFontPath}");
+            return font;
         }
 
         static void Slab(string name, Transform parent, Material material, Vector3 size, Vector3 position)

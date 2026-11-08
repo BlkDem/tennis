@@ -34,8 +34,8 @@ namespace TennisSim
         static readonly string[] TimeChoices = { "День", "Вечер, прожекторы" };
 
         public GameManager game;
-
-        Font font;
+        [Tooltip("Must contain Cyrillic: the web build has no system fonts to fall back on.")]
+        public Font font;
         RectTransform canvasRoot;
         GameObject hud, menu, pause, result;
         readonly Text[] names = new Text[2];
@@ -51,7 +51,7 @@ namespace TennisSim
 
         void Awake()
         {
-            font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            if (font == null) font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
             EnsureEventSystem();
             BuildCanvas();
             BuildHud();
@@ -319,7 +319,7 @@ namespace TennisSim
             playButton = MenuButton(panel, "ИГРАТЬ", new Vector2(0f, -450f), Play);
             Selectable settingsButton = null;
             settingsButton = MenuButton(panel, "НАСТРОЙКИ", new Vector2(0f, -530f), () => OpenSettings(menu, settingsButton.gameObject));
-            Selectable quit = MenuButton(panel, "ВЫХОД", new Vector2(0f, -610f), () => game.Quit());
+            Selectable quit = CanQuit ? MenuButton(panel, "ВЫХОД", new Vector2(0f, -610f), () => game.Quit()) : null;
             Chain(opponentRow, lengthRow, timeRow, playButton, settingsButton, quit);
 
             Label(menu.transform, "Стик / WASD — бег и прицел     A / Space — удар (нажать и отпустить)     B, X, Y, LB, RB / U, H, I, O, L — другие удары     Start / Esc — пауза",
@@ -339,7 +339,7 @@ namespace TennisSim
             Selectable settingsButton = null;
             settingsButton = MenuButton(panel, "НАСТРОЙКИ", new Vector2(0f, -220f), () => OpenSettings(pause, settingsButton.gameObject));
             Selectable toMenu = MenuButton(panel, "В МЕНЮ", new Vector2(0f, -300f), () => game.ShowMenu());
-            Selectable quit = MenuButton(panel, "ВЫХОД", new Vector2(0f, -380f), () => game.Quit());
+            Selectable quit = CanQuit ? MenuButton(panel, "ВЫХОД", new Vector2(0f, -380f), () => game.Quit()) : null;
             Chain(resumeButton, settingsButton, toMenu, quit);
         }
 
@@ -475,9 +475,13 @@ namespace TennisSim
             return row;
         }
 
-        /// <summary>Up and down move through these in order, and only through these.</summary>
+        /// <summary>A page in a browser cannot close itself, so the web build has no quit button.</summary>
+        static bool CanQuit => Application.platform != RuntimePlatform.WebGLPlayer;
+
+        /// <summary>Up and down move through these in order, and only through these. Missing ones are skipped.</summary>
         static void Chain(params Selectable[] items)
         {
+            items = items.Where(item => item != null).ToArray();
             for (int i = 0; i < items.Length; i++)
             {
                 items[i].navigation = new Navigation

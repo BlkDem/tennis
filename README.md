@@ -18,6 +18,8 @@
 
 Пересобрать сцену и ассеты: меню **Tennis → Rebuild Project Assets and Scene**.
 
+Веб-версия: https://tennis.umolab.ru. Собрать её: меню **Tennis → Build WebGL** (результат в `Build/WebGL`). CI/CD собирает и выкладывает её автоматически на каждый push в `master`, подробности в [docs/CI.md](docs/CI.md).
+
 Собрать игру для Windows: меню **Tennis → Build Windows Player**. Результат — `Build/Windows/TennisSimulator.exe`. В git билды не попадают; папку `Build/Windows` можно копировать только целиком.
 
 Игра запускается на весь экран в разрешении монитора. **Alt+Enter** переключает в оконный режим, окно можно растягивать. Выбранный режим Unity запоминает.
@@ -115,6 +117,8 @@ blender -b --factory-startup --python Tools/Blender/make_crowd_atlas.py -- <work
 После этого выполните **Tennis → Rebuild Project Assets and Scene**.
 
 Исходные GLB весят по 76 МБ и в репозиторий не входят. Первый шаг без них не запустить, но остальные работают, если промежуточные файлы первого шага сохранились.
+
+Шрифт интерфейса — Inter (лицензия SIL OFL, `Assets/TennisSim/Fonts/OFL.txt`). В браузере нет системных шрифтов, к которым Unity обращается за кириллицей, поэтому игра несёт шрифт с собой. Его собирает `Tools/Fonts/make_ui_font.py` из файла, который поставляется с Blender.
 
 `remove_logo.py` закрашивает фирменные знаки отсканированной формы: на груди, шортах, гетрах, напульсниках и сзади на футболке. Запускать после `prepare_meshes.py`, который пишет текстуры заново.
 

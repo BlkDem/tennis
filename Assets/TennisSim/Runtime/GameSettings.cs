@@ -35,9 +35,12 @@ namespace TennisSim
 
         static UniversalRenderPipelineAsset runtimePipeline;
 
+        /// <summary>A browser shares the machine with everything else open, so it starts a step lower.</summary>
+        static Quality DefaultQuality => Application.platform == RuntimePlatform.WebGLPlayer ? Quality.Medium : Quality.High;
+
         public static Quality GraphicsQuality
         {
-            get => (Quality)Mathf.Clamp(PlayerPrefs.GetInt(QualityKey, (int)Quality.High), 0, 2);
+            get => (Quality)Mathf.Clamp(PlayerPrefs.GetInt(QualityKey, (int)DefaultQuality), 0, 2);
             set
             {
                 PlayerPrefs.SetInt(QualityKey, (int)value);

@@ -49,6 +49,10 @@ namespace TennisSim
 
         void Awake()
         {
+            foreach (AudioClip[] set in new[] { hitHard, hitSoft, hitFrame, bounce, squeak })
+                if (set != null) foreach (AudioClip clip in set) Load(clip);
+            foreach (AudioClip clip in new[] { net, netCord, murmur, applause, cheer, ooh }) Load(clip);
+
             pool = new AudioSource[voices];
             for (int i = 0; i < voices; i++)
             {
@@ -69,7 +73,6 @@ namespace TennisSim
             murmurSource.loop = true;
             murmurSource.spatialBlend = 0f;
             murmurSource.volume = murmurBetweenPoints * crowdVolume;
-            if (murmur != null) murmurSource.Play();
 
             crowdSource = gameObject.AddComponent<AudioSource>();
             crowdSource.spatialBlend = 0f;
@@ -131,6 +134,7 @@ namespace TennisSim
         {
             effectsVolume = GameSettings.EffectsVolume;
             crowdVolume = GameSettings.CrowdVolume;
+            if (!murmurSource.isPlaying && Ready(murmur)) murmurSource.Play();
             if (game == null || game.Session == null) return;
             RallySession session = game.Session;
 
@@ -157,7 +161,7 @@ namespace TennisSim
 
         void PlayAt(AudioClip clip, Vector3 position, float volume, float pitch)
         {
-            if (clip == null) return;
+            if (!Ready(clip)) return;
             AudioSource source = pool[nextVoice];
             nextVoice = (nextVoice + 1) % pool.Length;
             source.transform.position = position;
@@ -167,9 +171,18 @@ namespace TennisSim
 
         void PlayCrowd(AudioClip clip, float volume)
         {
-            if (clip == null) return;
+            if (!Ready(clip)) return;
             crowdSource.PlayOneShot(clip, volume * crowdVolume);
         }
+
+        // The clips are not preloaded with the scene: all of them are requested here. In a browser they are decoded in
+        // the background after the game starts, and a clip played before that is silent and floods the console.
+        static void Load(AudioClip clip)
+        {
+            if (clip != null && clip.loadState == AudioDataLoadState.Unloaded) clip.LoadAudioData();
+        }
+
+        static bool Ready(AudioClip clip) => clip != null && clip.loadState == AudioDataLoadState.Loaded;
 
         static AudioClip Pick(AudioClip[] clips) => clips == null || clips.Length == 0 ? null : clips[Random.Range(0, clips.Length)];
     }
