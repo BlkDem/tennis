@@ -74,6 +74,7 @@ namespace TennisSim
         void Awake()
         {
             Time.fixedDeltaTime = RallySession.TickDt;
+            GameSettings.ApplyGraphics();
             seed = randomSeed != 0 ? randomSeed : Environment.TickCount;
             rng = new System.Random(seed ^ 0x5bd1e995);
             inputManager.DevicesChanged += OnDevicesChanged;
@@ -109,7 +110,7 @@ namespace TennisSim
             Keyboard keyboard = Keyboard.current;
             Gamepad gamepad = Gamepad.current;
             bool pausePressed = (keyboard != null && keyboard.escapeKey.wasPressedThisFrame) || (gamepad != null && gamepad.startButton.wasPressedThisFrame);
-            if (pausePressed)
+            if (pausePressed && !PauseKeysBlocked)
             {
                 if (Phase == GamePhase.Playing) Pause(true);
                 else if (Phase == GamePhase.Paused) Pause(false);
@@ -156,10 +157,19 @@ namespace TennisSim
             SetPhase(GamePhase.Menu);
         }
 
+        /// <summary>Set by the settings screen, which takes Esc and Start for itself while it is open.</summary>
+        public bool PauseKeysBlocked { get; set; }
+
         public void Pause(bool paused)
         {
             if (paused == (Phase == GamePhase.Paused)) return;
             Time.timeScale = paused ? 0f : 1f;
+            // Buttons pressed in the pause menu are not shots.
+            if (!paused)
+            {
+                inputManager.Near.Clear();
+                inputManager.Far.Clear();
+            }
             SetPhase(paused ? GamePhase.Paused : GamePhase.Playing);
         }
 

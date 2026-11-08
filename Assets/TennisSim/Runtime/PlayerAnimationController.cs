@@ -65,6 +65,9 @@ namespace TennisSim
         string visibleSwing;
         float hitAt = float.NaN;
 
+        /// <summary>The legs play locomotion or stand ready, so foot planting may take them over. Serves, hops and reactions keep their own feet.</summary>
+        public bool FeetFree => baseState == Locomotion || baseState == ServeReady;
+
         void Awake()
         {
             foreach (AnimationClip clip in animator.runtimeAnimatorController.animationClips)

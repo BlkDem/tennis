@@ -39,6 +39,24 @@ namespace TennisSim
         public float crouchShare = 0.8f;
         public float maxCrouch = 0.45f;
 
+        [Header("Feet")]
+        [Tooltip("Below this speed the feet stick to the court instead of sliding with the body, m/s.")]
+        public float plantMaxSpeed = 0.7f;
+        [Tooltip("A planted foot steps once the body has moved this far from it, metres...")]
+        public float stepTrigger = 0.2f;
+        [Tooltip("...or turned this far, degrees.")]
+        public float stepTurn = 35f;
+        public float stepDuration = 0.16f;
+        public float stepHeight = 0.07f;
+        [Tooltip("How long the clip takes to get a planted foot back when the player sets off, seconds.")]
+        public float releaseTime = 0.12f;
+        [Tooltip("How far the front foot steps in towards a shot taken standing, metres.")]
+        public float stepInDistance = 0.3f;
+        public float stepInBefore = 0.35f;
+        public float stepInAfter = 0.3f;
+        [Tooltip("How far the hips move onto the front foot, metres.")]
+        public float weightTransfer = 0.06f;
+
         [Header("Head")]
         [Tooltip("Share of the turn towards the ball the head makes; the eyes would do the rest.")]
         [Range(0f, 1f)] public float lookWeight = 0.7f;
@@ -50,7 +68,13 @@ namespace TennisSim
         public BallController ball;
 
         PlayerController player;
+        PlayerAnimationController animationController;
         RallySession session;
+        readonly FootState[] footStates = { new FootState(), new FootState() };
+        float footGround;
+        float transfer;
+        float lastHitAt = float.NegativeInfinity;
+        const float TeleportDistance = 1.2f;
 
         Transform hips, spine, neck, head;
         Transform upperArm, lowerArm, hand, racket;
@@ -84,6 +108,7 @@ namespace TennisSim
         void Awake()
         {
             player = GetComponent<PlayerController>();
+            animationController = GetComponent<PlayerAnimationController>();
             Transform[] all = GetComponentsInChildren<Transform>(true);
             Transform Bone(string name) => all.FirstOrDefault(t => t.name == name && t.GetComponent<Renderer>() == null);
 
@@ -125,6 +150,10 @@ namespace TennisSim
                     Quaternion headBound = body.sharedMesh.bindposes[index].inverse.rotation;
                     headFaceLocal = Quaternion.Inverse(headBound) * body.transform.InverseTransformDirection(transform.forward);
                 }
+                // The ankle's height above the ground when standing, also from the bind pose.
+                int foot = feet[0] != null ? System.Array.IndexOf(body.bones, feet[0]) : -1;
+                if (foot >= 0)
+                    footGround = body.transform.TransformPoint(body.sharedMesh.bindposes[foot].inverse.MultiplyPoint3x4(Vector3.zero)).y - transform.position.y;
             }
 
             Ready = hips != null && spine != null && head != null && leftUpperArm != null && leftLowerArm != null && leftHand != null && neck != null && upperArm != null && lowerArm != null && hand != null
@@ -142,6 +171,7 @@ namespace TennisSim
             contactTime = session.Time;
             contactPoint = e.Point;
             hitRecorded = true;
+            if (player.Agent.Serve.Phase == ServePhase.Idle) lastHitAt = session.Time;
         }
 
         void LateUpdate()
@@ -151,6 +181,7 @@ namespace TennisSim
             {
                 session = player.Session;
                 contactTime = float.NegativeInfinity;
+                lastHitAt = float.NegativeInfinity;
                 hitRecorded = false;
             }
 
@@ -158,15 +189,15 @@ namespace TennisSim
             UpdateContact(now);
 
             float weight = ContactWeight(now);
+            // A two-handed grip: remember where the left hand holds the racket, to put it back there.
+            bool twoHanded = weight > 0.001f && Vector3.Distance(leftHand.position, hand.position) < TwoHandedGap;
+            Vector3 leftOnRacket = racket.InverseTransformPoint(leftHand.position);
+            Quaternion leftRotation = Quaternion.Inverse(racket.rotation) * leftHand.rotation;
+
+            LowerBody(now, weight);
+
             if (weight > 0.001f)
             {
-                // A two-handed grip: remember where the left hand holds the racket, to put it back there.
-                bool twoHanded = Vector3.Distance(leftHand.position, hand.position) < TwoHandedGap;
-                Vector3 leftOnRacket = racket.InverseTransformPoint(leftHand.position);
-                Quaternion leftRotation = Quaternion.Inverse(racket.rotation) * leftHand.rotation;
-
-                Crouch(weight);
-                Lift(weight);
                 ReachForBall(weight);
                 if (twoHanded)
                 {
@@ -238,30 +269,135 @@ namespace TennisSim
             return x * x * (3f - 2f * x);
         }
 
-        /// <summary>Bends the knees for a low ball: the hips drop and the legs are solved back to where the clip put the feet.</summary>
-        void Crouch(float weight)
+        /// <summary>
+        /// Hips and legs. The hips drop for a low ball, rise for a high one and shift onto a front foot stepping into the
+        /// shot; the legs are then solved to where each foot should be: planted, stepping, or where the clip puts it.
+        /// </summary>
+        void LowerBody(float now, float weight)
         {
-            float drop = Mathf.Clamp((crouchBelow - contactPoint.y) * crouchShare, 0f, maxCrouch) * weight;
-            if (drop < 0.002f) return;
+            float drop = weight > 0.001f ? Mathf.Clamp((crouchBelow - contactPoint.y) * crouchShare, 0f, maxCrouch) * weight : 0f;
+            float lift = weight > 0.001f ? LiftFor(weight) : 0f;
+            int front = PlanFeet(now);
+            transfer = Mathf.MoveTowards(transfer, front >= 0 ? 1f : 0f, Time.deltaTime / 0.25f);
 
-            Vector3[] footPositions = { feet[0].position, feet[1].position };
-            Quaternion[] footRotations = { feet[0].rotation, feet[1].rotation };
-            hips.position += Vector3.down * drop;
+            bool feetMoved = footStates[0].release < 1f || footStates[1].release < 1f || front >= 0;
+            if (drop < 0.002f && lift < 0.002f && transfer < 0.002f && !feetMoved) return;
+
+            hips.position += Vector3.down * drop + Vector3.up * lift + transform.forward * (weightTransfer * transfer);
             for (int i = 0; i < 2; i++)
             {
+                // Rising for a high ball takes the feet with it: onto the toes, or off the ground on a serve.
+                Vector3 target = footStates[i].target + Vector3.up * lift;
                 Vector3 kneeHint = lowerLegs[i].position + transform.forward * 0.5f;
-                TwoBone(upperLegs[i], lowerLegs[i], feet[i], footPositions[i], kneeHint);
-                feet[i].rotation = footRotations[i];
+                TwoBone(upperLegs[i], lowerLegs[i], feet[i], target, kneeHint);
+                feet[i].rotation = footStates[i].targetRotation;
             }
         }
 
         /// <summary>A ball higher than the stretched arm and racket reach lifts the whole player, onto the toes or into a jump.</summary>
-        void Lift(float weight)
+        float LiftFor(float weight)
         {
             float arm = Vector3.Distance(upperArm.position, lowerArm.position) + Vector3.Distance(lowerArm.position, hand.position);
             float top = upperArm.position.y + arm * 0.97f + Vector3.Distance(hand.position, RacketHead) * 0.9f;
-            float lift = Mathf.Clamp(contactPoint.y - top, 0f, maxLift) * weight;
-            if (lift > 0.002f) hips.position += Vector3.up * lift;
+            return Mathf.Clamp(contactPoint.y - top, 0f, maxLift) * weight;
+        }
+
+        sealed class FootState
+        {
+            public bool planted;
+            public bool stepping;
+            public Vector3 position;
+            public Quaternion rotation;
+            public Vector3 from;
+            public Quaternion fromRotation;
+            public float progress;
+            /// <summary>0 while the foot is held to the ground, 1 when it plays the clip freely.</summary>
+            public float release = 1f;
+            public Vector3 target;
+            public Quaternion targetRotation;
+        }
+
+        /// <summary>
+        /// Decides where each foot goes this frame. Standing or nearly so, feet stick to the court; when the body has
+        /// turned or moved too far from a foot, it steps, one foot at a time, with a little lift. Before a shot taken
+        /// standing, the front foot steps in towards the ball. Running, the clip has the feet. Returns the foot stepping
+        /// into a shot, or -1.
+        /// </summary>
+        int PlanFeet(float now)
+        {
+            PlayerAgent agent = player.Agent;
+            Vector3 velocity = agent.Movement.Velocity;
+            float speed = new Vector2(velocity.x, velocity.z).magnitude;
+            bool lockable = animationController != null && animationController.FeetFree && speed < plantMaxSpeed;
+
+            int front = -1;
+            SwingPhase phase = agent.Shot.Phase;
+            bool shotComing = (phase == SwingPhase.Preparing || phase == SwingPhase.Swinging)
+                              && !float.IsNegativeInfinity(contactTime) && now - contactTime > -stepInBefore;
+            bool followingThrough = now - lastHitAt < stepInAfter;
+            // A right-hander steps in with the left foot on the forehand and the right on the backhand, and stays on it through the follow-through.
+            if (lockable && agent.Serve.Phase == ServePhase.Idle && (shotComing || followingThrough))
+                front = agent.Shot.DisplaySide == HandSide.Forehand ? 0 : 1;
+
+            for (int i = 0; i < 2; i++)
+            {
+                FootState foot = footStates[i];
+                FootState other = footStates[1 - i];
+                Vector3 desired = feet[i].position;
+                Quaternion desiredRotation = feet[i].rotation;
+                if (i == front) desired += Vector3.ProjectOnPlane(transform.forward, Vector3.up) * stepInDistance;
+                bool grounded = feet[i].position.y - transform.position.y < footGround + 0.05f;
+
+                if (!lockable || !grounded)
+                {
+                    // Let go smoothly: the clip takes the foot back over a moment rather than at once.
+                    if (foot.planted) foot.release = 0f;
+                    foot.planted = false;
+                    foot.stepping = false;
+                    foot.release = Mathf.MoveTowards(foot.release, 1f, Time.deltaTime / releaseTime);
+                    foot.target = Vector3.Lerp(foot.position, desired, foot.release);
+                    foot.targetRotation = Quaternion.Slerp(foot.rotation, desiredRotation, foot.release);
+                    continue;
+                }
+
+                Vector3 flatOffset = Vector3.ProjectOnPlane(desired - foot.position, Vector3.up);
+                if (!foot.planted || flatOffset.magnitude > TeleportDistance)
+                {
+                    // Planted where the foot is now, so taking over makes no jump.
+                    foot.planted = true;
+                    foot.stepping = false;
+                    foot.position = foot.release < 1f ? foot.target : desired;
+                    foot.rotation = foot.release < 1f ? foot.targetRotation : desiredRotation;
+                    foot.release = 0f;
+                }
+
+                if (foot.stepping)
+                {
+                    foot.progress += Time.deltaTime / stepDuration;
+                    float s = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(foot.progress));
+                    foot.target = Vector3.Lerp(foot.from, desired, s) + Vector3.up * (Mathf.Sin(Mathf.PI * s) * stepHeight);
+                    foot.targetRotation = Quaternion.Slerp(foot.fromRotation, desiredRotation, s);
+                    if (foot.progress >= 1f)
+                    {
+                        foot.stepping = false;
+                        foot.position = desired;
+                        foot.rotation = desiredRotation;
+                    }
+                    continue;
+                }
+
+                bool drifted = flatOffset.magnitude > stepTrigger || Quaternion.Angle(foot.rotation, desiredRotation) > stepTurn;
+                if (drifted && !other.stepping)
+                {
+                    foot.stepping = true;
+                    foot.progress = 0f;
+                    foot.from = foot.position;
+                    foot.fromRotation = foot.rotation;
+                }
+                foot.target = new Vector3(foot.position.x, desired.y, foot.position.z);
+                foot.targetRotation = foot.rotation;
+            }
+            return front;
         }
 
         /// <summary>

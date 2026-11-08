@@ -90,6 +90,53 @@ namespace TennisSim.Tests
         }
 
         [UnityTest]
+        public IEnumerator Settings_OpenFromTheMenuAndRebindAKey()
+        {
+            Keyboard keyboard = InputSystem.AddDevice<Keyboard>();
+            try
+            {
+                // Opponent, length, time, play, then settings.
+                for (int i = 0; i < 4; i++) yield return Tap(GamepadButton.DpadDown);
+                yield return Tap(GamepadButton.South);
+                GameObject settings = GameObject.Find("Settings");
+                Assert.That(settings != null && settings.activeSelf, Is.True, "the settings screen opens from the menu");
+                Assert.That(game.PauseKeysBlocked, Is.True);
+                TestScreenshots.Save(Camera.main, "settings.png", withInterface: true);
+
+                // Graphics, effects, crowd, screen, then controls.
+                for (int i = 0; i < 4; i++) yield return Tap(GamepadButton.DpadDown);
+                yield return Tap(GamepadButton.South);
+                Assert.That(GameObject.Find("Controls")?.activeSelf, Is.True, "the controls screen opens");
+                TestScreenshots.Save(Camera.main, "controls.png", withInterface: true);
+
+                InputAction auto = game.inputManager.Near.Actions.FindAction("ShotAuto");
+                GameObject.Find("ShotAuto KeyboardP1").GetComponent<UnityEngine.UI.Button>().onClick.Invoke();
+                float wait = Time.realtimeSinceStartup + 0.5f;
+                while (Time.realtimeSinceStartup < wait) yield return null;
+                InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.G));
+                wait = Time.realtimeSinceStartup + 0.3f;
+                while (Time.realtimeSinceStartup < wait) yield return null;
+                InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+                wait = Time.realtimeSinceStartup + 0.3f;
+                while (Time.realtimeSinceStartup < wait) yield return null;
+
+                string rebound = auto.bindings.First(b => b.groups != null && b.groups.Contains(InputManager.KeyboardP1Group)).effectivePath;
+                Assert.That(rebound, Is.EqualTo("<Keyboard>/g"), "the next key pressed becomes the binding");
+                Assert.That(GameSettings.BindingOverrides, Does.Contain("<Keyboard>/g"), "and it is saved");
+                Assert.That(game.inputManager.Far.Actions.FindAction("ShotAuto").bindings.Any(b => b.effectivePath == "<Keyboard>/g"), Is.True,
+                    "both players' copies of the controls follow the rebind");
+
+                GameObject.Find("СБРОСИТЬ").GetComponent<UnityEngine.UI.Button>().onClick.Invoke();
+                Assert.That(auto.bindings.First(b => b.groups != null && b.groups.Contains(InputManager.KeyboardP1Group)).effectivePath, Is.EqualTo("<Keyboard>/space"));
+            }
+            finally
+            {
+                GameSettings.BindingOverrides = "";
+                InputSystem.RemoveDevice(keyboard);
+            }
+        }
+
+        [UnityTest]
         public IEnumerator Evening_TurnsOnTheFloodlights()
         {
             EnvironmentController environment = Object.FindAnyObjectByType<EnvironmentController>();

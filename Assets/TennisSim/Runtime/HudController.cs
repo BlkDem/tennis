@@ -12,7 +12,7 @@ namespace TennisSim
     /// feedback on the human player's own shots, the serve hint, the pause menu and the match result.
     /// Everything works with a gamepad, the keyboard or the mouse.
     /// </summary>
-    public sealed class HudController : MonoBehaviour
+    public sealed partial class HudController : MonoBehaviour
     {
         const float KmhPerMs = 3.6f;
         const float CallSeconds = 1.8f;
@@ -58,6 +58,8 @@ namespace TennisSim
             BuildMenu();
             BuildPause();
             BuildResult();
+            BuildSettings();
+            BuildControls();
         }
 
         void OnEnable()
@@ -80,9 +82,15 @@ namespace TennisSim
         {
             if (game == null) return;
             GamePhase phase = game.Phase;
-            menu.SetActive(phase == GamePhase.Menu);
+            if (SettingsOpen && phase != GamePhase.Menu && phase != GamePhase.Paused)
+            {
+                settings.SetActive(false);
+                controls.SetActive(false);
+                game.PauseKeysBlocked = false;
+            }
+            menu.SetActive(phase == GamePhase.Menu && !SettingsOpen);
             hud.SetActive(phase != GamePhase.Menu);
-            pause.SetActive(phase == GamePhase.Paused);
+            pause.SetActive(phase == GamePhase.Paused && !SettingsOpen);
             result.SetActive(phase == GamePhase.MatchOver);
             if (phase == GamePhase.MatchOver) FillResult();
             if (phase != shownPhase)
@@ -100,6 +108,7 @@ namespace TennisSim
 
         void Update()
         {
+            UpdateSettingsKeys();
             if (game == null || game.Session == null || !hud.activeSelf) return;
             RallySession session = game.Session;
             TennisScore score = session.Score;
@@ -299,7 +308,7 @@ namespace TennisSim
         void BuildMenu()
         {
             menu = Group("Menu", canvasRoot);
-            RectTransform panel = Box("Menu Panel", menu.transform, new Vector2(0.5f, 0.5f), new Vector2(0f, 20f), new Vector2(820f, 680f), PanelColour, centred: true);
+            RectTransform panel = Box("Menu Panel", menu.transform, new Vector2(0.5f, 0.5f), new Vector2(0f, 20f), new Vector2(820f, 760f), PanelColour, centred: true);
 
             Label(panel, "TENNIS SIMULATOR", new Vector2(0f, -36f), new Vector2(820f, 80f), 64, Accent, TextAnchor.MiddleCenter, true, centred: true);
             Label(panel, "Выставочный корт · хард", new Vector2(0f, -116f), new Vector2(820f, 36f), 26, Muted, TextAnchor.MiddleCenter, centred: true);
@@ -308,8 +317,10 @@ namespace TennisSim
             lengthRow = Option(panel, "Матч", LengthChoices, 1, new Vector2(0f, -270f));
             timeRow = Option(panel, "Время", TimeChoices, 0, new Vector2(0f, -350f));
             playButton = MenuButton(panel, "ИГРАТЬ", new Vector2(0f, -450f), Play);
-            Selectable quit = MenuButton(panel, "ВЫХОД", new Vector2(0f, -530f), () => game.Quit());
-            Chain(opponentRow, lengthRow, timeRow, playButton, quit);
+            Selectable settingsButton = null;
+            settingsButton = MenuButton(panel, "НАСТРОЙКИ", new Vector2(0f, -530f), () => OpenSettings(menu, settingsButton.gameObject));
+            Selectable quit = MenuButton(panel, "ВЫХОД", new Vector2(0f, -610f), () => game.Quit());
+            Chain(opponentRow, lengthRow, timeRow, playButton, settingsButton, quit);
 
             Label(menu.transform, "Стик / WASD — бег и прицел     A / Space — удар (нажать и отпустить)     B, X, Y, LB, RB / U, H, I, O, L — другие удары     Start / Esc — пауза",
                 Anchored(new Vector2(0.5f, 0.08f), Vector2.zero), new Vector2(1800f, 40f), 22, TextColour, TextAnchor.MiddleCenter)
@@ -322,12 +333,14 @@ namespace TennisSim
             Image dim = pause.AddComponent<Image>();
             dim.color = new Color(0f, 0f, 0f, 0.45f);
             Stretch((RectTransform)pause.transform);
-            RectTransform panel = Box("Pause Panel", pause.transform, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(560f, 400f), PanelColour, centred: true);
+            RectTransform panel = Box("Pause Panel", pause.transform, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(560f, 480f), PanelColour, centred: true);
             Label(panel, "ПАУЗА", new Vector2(0f, -40f), new Vector2(560f, 70f), 56, Accent, TextAnchor.MiddleCenter, true, centred: true);
             resumeButton = MenuButton(panel, "ПРОДОЛЖИТЬ", new Vector2(0f, -140f), () => game.Pause(false));
-            Selectable toMenu = MenuButton(panel, "В МЕНЮ", new Vector2(0f, -220f), () => game.ShowMenu());
-            Selectable quit = MenuButton(panel, "ВЫХОД", new Vector2(0f, -300f), () => game.Quit());
-            Chain(resumeButton, toMenu, quit);
+            Selectable settingsButton = null;
+            settingsButton = MenuButton(panel, "НАСТРОЙКИ", new Vector2(0f, -220f), () => OpenSettings(pause, settingsButton.gameObject));
+            Selectable toMenu = MenuButton(panel, "В МЕНЮ", new Vector2(0f, -300f), () => game.ShowMenu());
+            Selectable quit = MenuButton(panel, "ВЫХОД", new Vector2(0f, -380f), () => game.Quit());
+            Chain(resumeButton, settingsButton, toMenu, quit);
         }
 
         void BuildResult()

@@ -58,6 +58,15 @@ namespace TennisSim
         /// <summary>Forgets queued presses, so the button that confirmed a menu does not also toss the first serve.</summary>
         public void Clear() => edges.Clear();
 
+        /// <summary>This player's own copy of the controls, which rebinding edits.</summary>
+        public InputActionAsset Actions => actions;
+
+        public void ApplyOverrides(string json)
+        {
+            actions.RemoveAllBindingOverrides();
+            if (!string.IsNullOrEmpty(json)) actions.LoadBindingOverridesFromJson(json);
+        }
+
         public PlayerIntent ReadIntent(in PlayerPerception perception)
         {
             var intent = new PlayerIntent
@@ -115,7 +124,19 @@ namespace TennisSim
         {
             Near = new HumanIntentSource(actions, KeyboardP1Group);
             Far = new HumanIntentSource(actions, KeyboardP2Group);
+            ApplySavedBindings();
             AssignDevices();
+        }
+
+        /// <summary>
+        /// The player's rebinds apply to both copies: player 1's keys only exist in the near player's bindings and
+        /// player 2's in the far one's, while gamepad buttons are shared.
+        /// </summary>
+        public void ApplySavedBindings()
+        {
+            string json = GameSettings.BindingOverrides;
+            Near.ApplyOverrides(json);
+            Far.ApplyOverrides(json);
         }
 
         void OnEnable() => InputSystem.onDeviceChange += OnDeviceChange;

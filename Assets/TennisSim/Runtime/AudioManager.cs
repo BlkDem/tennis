@@ -129,6 +129,8 @@ namespace TennisSim
 
         void Update()
         {
+            effectsVolume = GameSettings.EffectsVolume;
+            crowdVolume = GameSettings.CrowdVolume;
             if (game == null || game.Session == null) return;
             RallySession session = game.Session;
 
