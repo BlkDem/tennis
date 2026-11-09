@@ -45,7 +45,8 @@ namespace TennisSim.Simulation
             TossRequested = false;
         }
 
-        public ShotResult? Tick(in PlayerPerception p, in PlayerIntent intent, Vector2 aim)
+        /// <param name="target">A point in the box picked with the aim cursor, world X and Z; replaces <paramref name="aim"/> when set.</param>
+        public ShotResult? Tick(in PlayerPerception p, in PlayerIntent intent, Vector2 aim, Vector2? target = null)
         {
             TossRequested = false;
             switch (Phase)
@@ -76,17 +77,17 @@ namespace TennisSim.Simulation
                     if (p.Now < sweetTime) break;
                     Phase = ServePhase.Done;
                     if (!p.Tossing || p.Ball.Position.y < tuning.TossCatchHeight) return null;
-                    return Strike(p, sweetTime, aim);
+                    return Strike(p, sweetTime, aim, target);
             }
             return null;
         }
 
         /// <param name="aim">Read at the moment of contact, so the player can steer the serve during the toss.</param>
-        ShotResult Strike(in PlayerPerception p, float sweetTime, Vector2 aim)
+        ShotResult Strike(in PlayerPerception p, float sweetTime, Vector2 aim, Vector2? target)
         {
             float timingError = float.IsNaN(p.ServeContactTime) ? 0f : sweetTime - p.ServeContactTime;
             ContactEvaluation evaluation = ContactEvaluator.Evaluate(timingError, 0f, 0f, tuning.ServeTimingWindow, tuning);
-            return ShotPlanner.PlanServe(KindFor(Button), slot, p.Ball.Position, p.ServeBox, aim, evaluation, tuning, physics, rng);
+            return ShotPlanner.PlanServe(KindFor(Button), slot, p.Ball.Position, p.ServeBox, aim, evaluation, tuning, physics, rng, target);
         }
     }
 }

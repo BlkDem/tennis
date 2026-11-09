@@ -24,7 +24,9 @@ namespace TennisSim.Simulation
         public ContactEvaluation Contact;
         /// <summary>World-space aim: X across the court, Y along +Z. Length up to 1.</summary>
         public Vector2 Aim;
-        /// <summary>0..1, how long the player prepared relative to a full preparation.</summary>
+        /// <summary>A point picked with the aim cursor, world X and Z. When set it replaces <see cref="Aim"/>.</summary>
+        public Vector2? Target;
+        /// <summary>0..1, the charge: how long the button was held relative to a full preparation.</summary>
         public float Preparation;
         /// <summary>How far out of the ideal strike point the ball was met, as a fraction of the reach, 0..1.</summary>
         public float Stretch;
@@ -99,7 +101,8 @@ namespace TennisSim.Simulation
             Vector2 aimed = AimPoint(c, profile, forward);
             Vector2 pulled = aimed + new Vector2(MistimePull(c, t), 0f);
 
-            float power = 0.4f * Mathf.Clamp01(c.Preparation) + 0.6f * c.Contact.Score;
+            float share = Mathf.Clamp01(t.ChargePowerShare);
+            float power = share * Mathf.Clamp01(c.Preparation) + (1f - share) * c.Contact.Score;
             float speed = Mathf.Lerp(profile.MinSpeed, profile.MaxSpeed, power) * PaceFactor(kind, c, t)
                         + AbsorbedPace(kind, c, t);
             speed = Mathf.Min(speed, profile.MaxSpeed * MaxSpeedOverProfile);
@@ -111,19 +114,28 @@ namespace TennisSim.Simulation
         }
 
         /// <summary>A serve struck at the top of the toss, aimed inside the service box.</summary>
+        /// <param name="target">A point picked with the aim cursor, world X and Z; replaces <paramref name="aim"/> when set.</param>
         public static ShotResult PlanServe(ShotKind kind, PlayerSlot slot, Vector3 contact, ServiceBox box, Vector2 aim,
-            ContactEvaluation evaluation, ShotTuning t, in BallPhysicsParams physics, Random rng)
+            ContactEvaluation evaluation, ShotTuning t, in BallPhysicsParams physics, Random rng, Vector2? target = null)
         {
             ShotProfile profile = t.Profile(kind);
             float forward = CourtGeometry.ForwardSign(slot);
 
-            float across = Mathf.Abs(aim.x) > AimDeadZone ? Mathf.Clamp(aim.x, -1f, 1f) : 0f;
-            float x = Mathf.Lerp(box.MinX + t.ServeLineMargin, box.MaxX - t.ServeLineMargin, (across + 1f) * 0.5f);
-            float depthInput = Mathf.Abs(aim.y) > AimDeadZone ? Mathf.Clamp(aim.y * forward, -1f, 1f) : 0f;
-            float depth = depthInput >= 0f
-                ? Mathf.Lerp(profile.DefaultDepth, profile.MaxDepth, depthInput)
-                : Mathf.Lerp(profile.DefaultDepth, profile.MinDepth, -depthInput);
-            var aimed = new Vector2(x, depth * forward);
+            Vector2 aimed;
+            if (target.HasValue)
+            {
+                aimed = ClampToServeBox(target.Value, slot, box, profile, t);
+            }
+            else
+            {
+                float across = Mathf.Abs(aim.x) > AimDeadZone ? Mathf.Clamp(aim.x, -1f, 1f) : 0f;
+                float x = Mathf.Lerp(box.MinX + t.ServeLineMargin, box.MaxX - t.ServeLineMargin, (across + 1f) * 0.5f);
+                float depthInput = Mathf.Abs(aim.y) > AimDeadZone ? Mathf.Clamp(aim.y * forward, -1f, 1f) : 0f;
+                float depth = depthInput >= 0f
+                    ? Mathf.Lerp(profile.DefaultDepth, profile.MaxDepth, depthInput)
+                    : Mathf.Lerp(profile.DefaultDepth, profile.MinDepth, -depthInput);
+                aimed = new Vector2(x, depth * forward);
+            }
 
             float speed = Mathf.Lerp(profile.MinSpeed, profile.MaxSpeed, evaluation.Score);
             ShotResult result = Launch(kind, contact, aimed, speed, profile, evaluation, forward, t, physics, rng);
@@ -157,8 +169,38 @@ namespace TennisSim.Simulation
             };
         }
 
+        /// <summary>
+        /// Where a shot of this profile may be aimed, world X and Z: no wider than its widest aim, no shorter or deeper
+        /// than it can land. The aim cursor is kept to this, so it shows where the ball really goes.
+        /// </summary>
+        public static Vector2 ClampToProfile(Vector2 target, PlayerSlot slot, ShotProfile profile)
+        {
+            float forward = CourtGeometry.ForwardSign(slot);
+            float x = Mathf.Clamp(target.x, -profile.MaxAimX, profile.MaxAimX);
+            float depth = Mathf.Clamp(target.y * forward, profile.MinDepth, profile.MaxDepth);
+            return new Vector2(x, depth * forward);
+        }
+
+        /// <summary>The part of a service box a serve of this profile may be aimed at, kept off the lines.</summary>
+        public static Vector2 ClampToServeBox(Vector2 target, PlayerSlot slot, ServiceBox box, ShotProfile profile, ShotTuning t)
+        {
+            float forward = CourtGeometry.ForwardSign(slot);
+            float x = Mathf.Clamp(target.x, box.MinX + t.ServeLineMargin, box.MaxX - t.ServeLineMargin);
+            float depth = Mathf.Clamp(target.y * forward, profile.MinDepth, profile.MaxDepth);
+            return new Vector2(x, depth * forward);
+        }
+
+        /// <summary>Where a shot goes with no aim given: back across the court from where the ball is met, to the usual depth.</summary>
+        public static Vector2 DefaultTarget(PlayerSlot slot, ShotProfile profile, float contactX)
+        {
+            float x = Mathf.Clamp(-contactX * 0.25f, -profile.MaxAimX, profile.MaxAimX);
+            return new Vector2(x, profile.DefaultDepth * CourtGeometry.ForwardSign(slot));
+        }
+
         static Vector2 AimPoint(in ShotContext c, ShotProfile profile, float forward)
         {
+            if (c.Target.HasValue) return ClampToProfile(c.Target.Value, c.Slot, profile);
+
             // With no aim input the ball drifts back across the court instead of always going down the middle.
             float x = Mathf.Abs(c.Aim.x) > AimDeadZone
                 ? Mathf.Clamp(c.Aim.x, -1f, 1f) * profile.MaxAimX

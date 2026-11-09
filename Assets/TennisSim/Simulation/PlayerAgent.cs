@@ -35,6 +35,11 @@ namespace TennisSim.Simulation
 
         public Vector3 Position => Movement.Position;
         public ShotTuning ShotTuning => shotTuning;
+
+        /// <summary>The keyboard's aim cursor is out: a shot or a serve is held, and the movement keys move the cursor.</summary>
+        public bool AimingWithCursor { get; private set; }
+        /// <summary>Where the aim cursor is, world X and Z: on the other half, or in the service box on a serve.</summary>
+        public Vector2 AimTarget { get; private set; }
         /// <summary>Between points the session walks the player to their next place; their own input waits.</summary>
         public Vector3? WalkTarget { get; set; }
         public const float BetweenPointsWalkSpeed = 3f;
@@ -58,6 +63,7 @@ namespace TennisSim.Simulation
             recovering = false;
             committedToContact = false;
             aim = Vector2.zero;
+            AimingWithCursor = false;
         }
 
         public ShotResult? Tick(in PlayerPerception p, float dt)
@@ -67,6 +73,7 @@ namespace TennisSim.Simulation
             {
                 // A shot still being prepared when the point ended is put away.
                 Shot.ResetForPoint();
+                AimingWithCursor = false;
                 Movement.Tick(Movement.ArriveVelocity(WalkTarget.Value, BetweenPointsWalkSpeed), dt);
                 return null;
             }
@@ -74,24 +81,84 @@ namespace TennisSim.Simulation
 
             if (p.IsServer && (p.AwaitingServe || p.Tossing)) return TickServing(p, intent, dt);
 
+            // With the cursor out the movement keys aim, so for moving the player they count as let go: the player
+            // runs to the ball by themselves.
+            bool cursor = UpdateShotCursor(intent, dt);
+            PlayerIntent movement = intent;
+            if (cursor) movement.Move = Vector2.zero;
+
             float sprintSpeed = intent.Sprint ? movementTuning.SprintSpeed : movementTuning.RunSpeed;
-            bool stickActive = intent.Move.sqrMagnitude > StickActive * StickActive;
+            bool stickActive = movement.Move.sqrMagnitude > StickActive * StickActive;
             UpdateContactCommitment(p, sprintSpeed);
             bool steering = stickActive && (!AutoPositioning || !committedToContact);
 
-            ShotResult? shot = Shot.Tick(p, intent, Movement.Velocity, sprintSpeed, aim, steering);
+            ShotResult? shot = Shot.Tick(p, intent, Movement.Velocity, sprintSpeed, aim, steering, cursor ? AimTarget : (Vector2?)null);
 
             if (intent.Pressed.HasValue || stickActive) recovering = false;
             if (shot.HasValue) recovering = true;
 
-            Movement.Tick(DesiredVelocity(intent, sprintSpeed, steering), dt);
+            Movement.Tick(DesiredVelocity(movement, sprintSpeed, steering), dt);
             return shot;
+        }
+
+        /// <summary>
+        /// The aim cursor of keyboard play, out while a shot is held and the player knows where the ball will be met.
+        /// It starts where the shot would go with no aim and moves with the movement keys, kept to where the chosen
+        /// shot can land. Without auto-positioning the keys must move the player, so there is no cursor.
+        /// </summary>
+        bool UpdateShotCursor(in PlayerIntent intent, float dt)
+        {
+            bool holding = Shot.Phase == SwingPhase.Preparing || Shot.Phase == SwingPhase.Swinging;
+            bool cursor = intent.AimCursor && AutoPositioning && holding && Shot.Plan.Valid;
+            if (cursor)
+            {
+                ShotProfile profile = shotTuning.Profile(KindFor(Shot.ActiveButton));
+                Vector2 target = AimingWithCursor ? AimTarget : ShotPlanner.DefaultTarget(Slot, profile, Shot.Plan.BallPoint.x);
+                AimTarget = ShotPlanner.ClampToProfile(MoveCursor(target, intent, dt), Slot, profile);
+            }
+            AimingWithCursor = cursor;
+            return cursor;
+        }
+
+        /// <summary>During the toss the cursor picks the spot in the service box; it starts in the middle, at the usual depth.</summary>
+        bool UpdateServeCursor(ServiceBox box, in PlayerIntent intent, float dt)
+        {
+            bool cursor = intent.AimCursor && (Serve.Phase == ServePhase.Tossing || Serve.Phase == ServePhase.Swinging);
+            if (cursor)
+            {
+                ShotProfile profile = shotTuning.Profile(ServeController.KindFor(Serve.Button));
+                Vector2 target = AimingWithCursor ? AimTarget : new Vector2(box.CenterX, profile.DefaultDepth * CourtGeometry.ForwardSign(Slot));
+                AimTarget = ShotPlanner.ClampToServeBox(MoveCursor(target, intent, dt), Slot, box, profile, shotTuning);
+            }
+            AimingWithCursor = cursor;
+            return cursor;
+        }
+
+        Vector2 MoveCursor(Vector2 target, in PlayerIntent intent, float dt)
+        {
+            if (intent.Move.sqrMagnitude <= StickActive * StickActive) return target;
+            return target + Vector2.ClampMagnitude(intent.Move, 1f) * (shotTuning.AimCursorSpeed * dt);
+        }
+
+        /// <summary>The shot a button usually makes, for where its cursor may go; the contact itself decides the final kind.</summary>
+        static ShotKind KindFor(ShotButton button)
+        {
+            switch (button)
+            {
+                case ShotButton.Slice: return ShotKind.Slice;
+                case ShotButton.Flat: return ShotKind.Flat;
+                case ShotButton.Lob: return ShotKind.Lob;
+                case ShotButton.Drop: return ShotKind.Drop;
+                case ShotButton.Volley: return ShotKind.Volley;
+                default: return ShotKind.Topspin;
+            }
         }
 
         /// <summary>Before the toss the stick walks the server along the baseline; once the ball is up they stand still.</summary>
         ShotResult? TickServing(in PlayerPerception p, in PlayerIntent intent, float dt)
         {
-            ShotResult? serve = Serve.Tick(p, intent, aim);
+            bool cursor = UpdateServeCursor(p.ServeBox, intent, dt);
+            ShotResult? serve = Serve.Tick(p, intent, aim, cursor ? AimTarget : (Vector2?)null);
 
             bool walking = p.AwaitingServe && Serve.Phase == ServePhase.Idle && Mathf.Abs(intent.Move.x) > StickActive;
             Vector3 desired = walking ? new Vector3(Mathf.Clamp(intent.Move.x, -1f, 1f) * shotTuning.ServerMoveSpeed, 0f, 0f) : Vector3.zero;

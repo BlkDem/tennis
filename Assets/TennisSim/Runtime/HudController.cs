@@ -44,6 +44,14 @@ namespace TennisSim
         readonly Text[] points = new Text[2];
         readonly Text[] serving = new Text[2];
         Text tieBreak, call, feedback, hint, resultTitle, resultScore;
+        Canvas canvas;
+        readonly RectTransform[] powerBars = new RectTransform[2];
+        readonly RectTransform[] powerFills = new RectTransform[2];
+        const float PowerBarWidth = 150f;
+        const float PowerBarHeight = 16f;
+        const float PowerBarInset = 3f;
+        /// <summary>The bar floats this high above a player's feet, over the head.</summary>
+        const float PowerBarHeightOnCourt = 2.2f;
         OptionRow opponentRow, lengthRow, timeRow;
         Selectable playButton, resumeButton, rematchButton;
         float callUntil, feedbackUntil;
@@ -126,11 +134,37 @@ namespace TennisSim
 
             bool humanServing = session.State == SessionState.AwaitingServe && game.IsHuman(session.Server) && game.Phase == GamePhase.Playing;
             Set(hint, humanServing
-                ? (session.ServeNumber == 2 ? "Вторая подача.  " : "") + "Нажмите удар — подброс, отпустите, когда мяч опускается.   H / X — плоская,  U / B — резаная,  остальные — кик"
+                ? (session.ServeNumber == 2 ? "Вторая подача.  " : "") + "Нажмите удар — подброс, отпустите, когда мяч опускается; пока он в воздухе, WASD / стик целят.   H / X — плоская,  U / B — резаная,  остальные — кик"
                 : "");
 
             Fade(call, callUntil);
             Fade(feedback, feedbackUntil);
+            UpdatePowerBars();
+        }
+
+        /// <summary>Over a human player's head while a shot is held: how far the hold has charged its power. Full turns green.</summary>
+        void UpdatePowerBars()
+        {
+            Camera view = Camera.main;
+            for (int i = 0; i < 2; i++)
+            {
+                var slot = (PlayerSlot)i;
+                PlayerController player = slot == PlayerSlot.Near ? game.nearPlayer : game.farPlayer;
+                PlayerAgent agent = player != null ? player.Agent : null;
+                SwingPhase phase = agent != null ? agent.Shot.Phase : SwingPhase.Idle;
+                bool show = view != null && agent != null && game.Phase == GamePhase.Playing && game.IsHuman(slot)
+                            && (phase == SwingPhase.Preparing || phase == SwingPhase.Swinging);
+                Vector3 screen = show ? view.WorldToScreenPoint(player.Position + Vector3.up * PowerBarHeightOnCourt) : Vector3.zero;
+                show &= screen.z > 0f;
+
+                RectTransform bar = powerBars[i];
+                if (bar.gameObject.activeSelf != show) bar.gameObject.SetActive(show);
+                if (!show) continue;
+                bar.anchoredPosition = (Vector2)screen / canvas.scaleFactor;
+                float charge = agent.Shot.Charge;
+                powerFills[i].sizeDelta = new Vector2((PowerBarWidth - PowerBarInset * 2f) * charge, PowerBarHeight - PowerBarInset * 2f);
+                powerFills[i].GetComponent<Image>().color = charge >= 1f ? Perfect : Accent;
+            }
         }
 
         static void Fade(Text text, float until)
@@ -268,7 +302,7 @@ namespace TennisSim
         {
             var canvasObject = new GameObject("HUD Canvas");
             canvasObject.transform.SetParent(transform, false);
-            var canvas = canvasObject.AddComponent<Canvas>();
+            canvas = canvasObject.AddComponent<Canvas>();
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
             canvas.sortingOrder = 10;
             var scaler = canvasObject.AddComponent<CanvasScaler>();
@@ -303,6 +337,20 @@ namespace TennisSim
             feedback.gameObject.AddComponent<Outline>().effectColor = new Color(0f, 0f, 0f, 0.8f);
             hint = Label(hud.transform, "", Anchored(new Vector2(0.5f, 0.06f), Vector2.zero), new Vector2(1800f, 44f), 24, TextColour, TextAnchor.MiddleCenter);
             hint.gameObject.AddComponent<Shadow>().effectColor = new Color(0f, 0f, 0f, 0.9f);
+
+            for (int i = 0; i < 2; i++)
+            {
+                // Placed by screen position, so anchored at the bottom left of the screen.
+                powerBars[i] = Box("Power " + i, hud.transform, Vector2.zero, Vector2.zero, new Vector2(PowerBarWidth, PowerBarHeight), PanelColour, centred: true);
+                var fill = new GameObject("Fill", typeof(RectTransform), typeof(Image));
+                fill.transform.SetParent(powerBars[i], false);
+                var rect = (RectTransform)fill.transform;
+                rect.anchorMin = rect.anchorMax = new Vector2(0f, 0.5f);
+                rect.pivot = new Vector2(0f, 0.5f);
+                rect.anchoredPosition = new Vector2(PowerBarInset, 0f);
+                powerFills[i] = rect;
+                powerBars[i].gameObject.SetActive(false);
+            }
         }
 
         void BuildMenu()
@@ -322,8 +370,8 @@ namespace TennisSim
             Selectable quit = CanQuit ? MenuButton(panel, "ВЫХОД", new Vector2(0f, -610f), () => game.Quit()) : null;
             Chain(opponentRow, lengthRow, timeRow, playButton, settingsButton, quit);
 
-            Label(menu.transform, "Стик / WASD — бег и прицел     A / Space — удар (нажать и отпустить)     B, X, Y, LB, RB / U, H, I, O, L — другие удары     Start / Esc — пауза",
-                Anchored(new Vector2(0.5f, 0.08f), Vector2.zero), new Vector2(1800f, 40f), 22, TextColour, TextAnchor.MiddleCenter)
+            Label(menu.transform, "Стик / WASD — бег     A / Space — удар: держите, пока копится сила, и ведите прицел WASD; отпустите — удар     B, X, Y, LB, RB / U, H, I, O, L — другие удары     Start / Esc — пауза",
+                Anchored(new Vector2(0.5f, 0.08f), Vector2.zero), new Vector2(1880f, 40f), 22, TextColour, TextAnchor.MiddleCenter)
                 .gameObject.AddComponent<Shadow>().effectColor = new Color(0f, 0f, 0f, 0.9f);
         }
 

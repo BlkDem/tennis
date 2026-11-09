@@ -59,6 +59,47 @@ namespace TennisSim.Tests
             return ShotPlanner.Plan(context, T, P, new System.Random(7));
         }
 
+        static ShotResult PlanCharged(float charge, Vector2? target = null, ShotButton button = ShotButton.Auto)
+        {
+            var context = new ShotContext
+            {
+                ContactPoint = new Vector3(0.5f, 1f, -11f),
+                BallHasBounced = true,
+                Slot = PlayerSlot.Near,
+                Button = button,
+                Side = HandSide.Forehand,
+                Contact = new ContactEvaluation { Score = 0.85f, Quality = ContactQuality.Perfect },
+                Target = target,
+                Preparation = charge,
+            };
+            return ShotPlanner.Plan(context, T, P, new System.Random(7));
+        }
+
+        [Test]
+        public void Charge_HoldingLongerHitsHarder()
+        {
+            float weak = PlanCharged(0.1f).Velocity.magnitude;
+            float half = PlanCharged(0.5f).Velocity.magnitude;
+            float full = PlanCharged(1f).Velocity.magnitude;
+            TestContext.WriteLine($"km/h: charge 0.1 {weak * 3.6f:F0}, 0.5 {half * 3.6f:F0}, full {full * 3.6f:F0}");
+            Assert.That(half, Is.GreaterThan(weak));
+            Assert.That(full, Is.GreaterThan(half));
+            Assert.That(full / weak, Is.GreaterThan(1.2f), "the difference must be felt, not just measured");
+        }
+
+        [Test]
+        public void Cursor_TheBallIsAimedWhereTheCursorIs()
+        {
+            var target = new Vector2(-2.6f, 9.5f);
+            ShotResult shot = PlanCharged(1f, target);
+            Assert.That(shot.AimedTarget.x, Is.EqualTo(target.x).Within(1e-4f));
+            Assert.That(shot.AimedTarget.y, Is.EqualTo(target.y).Within(1e-4f));
+
+            // A drop shot cannot be aimed at the baseline: the cursor is kept to where the shot can land.
+            ShotResult drop = PlanCharged(1f, target, ShotButton.Drop);
+            Assert.That(drop.AimedTarget.y, Is.EqualTo(T.Profile(ShotKind.Drop).MaxDepth).Within(1e-4f));
+        }
+
         static IEnumerable<ShotKind> DrivenAndArcKinds()
         {
             yield return ShotKind.Topspin;

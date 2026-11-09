@@ -22,12 +22,20 @@ namespace TennisSim.Tests
         Keyboard keyboard;
         Gamepad addedGamepad;
         bool nearHit;
+        bool farHit;
+        ShotResult lastNearShot;
         InputSettings.BackgroundBehavior savedBackgroundBehavior;
         InputSettings.EditorInputBehaviorInPlayMode savedEditorBehavior;
 
         void OnRallyEvent(RallyEvent e)
         {
-            if (e.Type == RallyEventType.Hit && e.Slot == PlayerSlot.Near) nearHit = true;
+            if (e.Type != RallyEventType.Hit) return;
+            if (e.Slot == PlayerSlot.Near)
+            {
+                nearHit = true;
+                lastNearShot = e.Shot;
+            }
+            else farHit = true;
         }
 
         [UnitySetUp]
@@ -97,6 +105,55 @@ namespace TennisSim.Tests
             Debug.Log($"Keyboard W: player from z={start:F2} to z={near.Position.z:F2}");
             Assert.That(start, Is.LessThan(-CourtGeometry.HalfLength + 1f), "the serve is played from the baseline");
             Assert.That(near.Position.z, Is.GreaterThan(-9f), "W must carry the player into the court");
+        }
+
+        /// <summary>
+        /// Keyboard play end to end: a held shot brings out the aim cursor, which A and D move, and the power bar over the
+        /// player; the ball goes where the cursor was. The same on the serve, during the toss.
+        /// </summary>
+        [UnityTest, Timeout(60000)]
+        public IEnumerator Keyboard_HeldShotAimsWithTheCursorAndShowsItsPower()
+        {
+            Camera camera = Camera.main;
+            Transform serveMarker = game.nearPlayer.GetComponent<AimCursorView>().marker;
+            GameObject powerBar = System.Array.Find(Object.FindObjectsByType<RectTransform>(FindObjectsInactive.Include, FindObjectsSortMode.None),
+                t => t.name == "Power 0")?.gameObject;
+            Assert.That(powerBar, Is.Not.Null, "the HUD has no power bar");
+            Assert.That(powerBar.activeSelf, Is.False, "no shot is held yet");
+
+            // The serve: toss, then D during the toss moves the cursor towards the T.
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.Space));
+            yield return WaitSeconds(0.3f);
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.Space, Key.D));
+            yield return WaitSeconds(0.25f);
+            Assert.That(near.AimingWithCursor, Is.True, "the toss brings out the cursor");
+            Assert.That(serveMarker.gameObject.activeSelf, Is.True, "the cursor is drawn on the court");
+            TestScreenshots.Save(camera, "keyboard_serve_aim.png", withInterface: true);
+            yield return WaitForServeHit();
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+
+            float start = Time.time;
+            while (!farHit && Time.time - start < 6f) yield return null;
+            if (!farHit) Assert.Inconclusive("the serve was not returned, so there was no ball to play");
+
+            // The return: hold Space with A, so the cursor goes left while the player runs to the ball.
+            nearHit = false;
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.Space, Key.A));
+            yield return WaitSeconds(0.45f);
+            if (!near.AimingWithCursor) Assert.Inconclusive("the return went out of reach before the cursor could be checked");
+            Vector2 cursor = near.AimTarget;
+            float charge = near.Shot.Charge;
+            Assert.That(serveMarker.gameObject.activeSelf, Is.True);
+            Assert.That(powerBar.activeSelf, Is.True, "the power bar shows while the shot is held");
+            TestScreenshots.Save(camera, "keyboard_shot_aim.png", withInterface: true);
+
+            start = Time.time;
+            while (!nearHit && Time.time - start < 3f) yield return null;
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+            Debug.Log($"Keyboard aim: cursor at {cursor}, charge {charge:F2}, shot aimed at {lastNearShot.AimedTarget}, {lastNearShot.Velocity.magnitude * 3.6f:F0} km/h");
+            Assert.That(charge, Is.GreaterThan(0.3f), "holding charges the shot");
+            Assert.That(nearHit, Is.True, "the player reached the ball by themselves while the keys aimed");
+            Assert.That(lastNearShot.AimedTarget.x, Is.LessThan(-1.5f), "A moved the aim to the left");
         }
 
         [UnityTest]

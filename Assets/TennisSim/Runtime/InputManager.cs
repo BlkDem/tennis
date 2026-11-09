@@ -18,6 +18,8 @@ namespace TennisSim
         readonly InputAction aim;
         readonly InputAction sprint;
         readonly Queue<(ShotButton button, bool pressed)> edges = new Queue<(ShotButton, bool)>();
+        /// <summary>The device this player last pressed a shot button or moved with; it decides how aiming works.</summary>
+        InputDevice lastDevice;
         readonly List<(InputAction action, Action<InputAction.CallbackContext> onStarted, Action<InputAction.CallbackContext> onCanceled)> subscriptions =
             new List<(InputAction, Action<InputAction.CallbackContext>, Action<InputAction.CallbackContext>)>();
 
@@ -46,7 +48,11 @@ namespace TennisSim
         void Bind(InputActionMap map, string actionName, ShotButton button)
         {
             InputAction action = map.FindAction(actionName, throwIfNotFound: true);
-            Action<InputAction.CallbackContext> onStarted = _ => edges.Enqueue((button, true));
+            Action<InputAction.CallbackContext> onStarted = context =>
+            {
+                lastDevice = context.control?.device;
+                edges.Enqueue((button, true));
+            };
             Action<InputAction.CallbackContext> onCanceled = _ => edges.Enqueue((button, false));
             action.started += onStarted;
             action.canceled += onCanceled;
@@ -69,11 +75,14 @@ namespace TennisSim
 
         public PlayerIntent ReadIntent(in PlayerPerception perception)
         {
+            if (move.activeControl != null) lastDevice = move.activeControl.device;
             var intent = new PlayerIntent
             {
                 Move = move.ReadValue<Vector2>(),
                 Aim = aim.ReadValue<Vector2>(),
                 Sprint = sprint.IsPressed(),
+                // On a keyboard the same keys move and aim, so a held shot turns them into an aim cursor.
+                AimCursor = !(lastDevice is Gamepad),
             };
 
             if (edges.Count > 0)

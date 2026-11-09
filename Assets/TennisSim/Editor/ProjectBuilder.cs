@@ -333,14 +333,21 @@ namespace TennisSim.EditorTools
         sealed class Materials
         {
             public Material Ground, Court, Post, NetFabric, NetTape;
-            public Material Ball, BallShadow, LandingMarker;
+            public Material Ball, BallShadow, LandingMarker, AimNear, AimFar;
             public Material NearPlayer, FarPlayer, Racket, RacketStrings;
             public Material Crowd;
             /// <summary>Stadium materials by the name of the FBX part they belong to.</summary>
             public Dictionary<string, Material> Stadium;
         }
 
-        static Materials BuildMaterials() => new Materials
+        static Materials BuildMaterials()
+        {
+            // Made once for both cursors: making a texture replaces the asset, which would leave the first material without it.
+            Texture2D crosshair = CrosshairTexture();
+            return BuildMaterials(crosshair);
+        }
+
+        static Materials BuildMaterials(Texture2D crosshair) => new Materials
         {
             Ground = Lit("Ground", new Color(0.32f, 0.32f, 0.31f), 0.1f),
             Court = CourtSurface(),
@@ -368,6 +375,9 @@ namespace TennisSim.EditorTools
             Ball = Textured("Ball", PlayerArtDir, "Racket_BaseColor", "Racket_Normal", "Racket_Mask"),
             BallShadow = Transparent("BallShadow", BlobTexture(), new Color(0f, 0f, 0f, 0.55f)),
             LandingMarker = Transparent("LandingMarker", RingTexture(), new Color(1f, 0.9f, 0.2f, 0.55f)),
+            // Aim cursors in each player's kit colour: white for the near player, red for the far one.
+            AimNear = Transparent("AimNear", crosshair, new Color(1f, 1f, 1f, 0.9f)),
+            AimFar = Transparent("AimFar", crosshair, new Color(1f, 0.35f, 0.3f, 0.9f)),
             NearPlayer = Textured("PlayerNear", PlayerArtDir, "Player_BaseColor", "Player_Normal", "Player_Mask"),
             FarPlayer = Textured("PlayerFar", PlayerArtDir, "Player_BaseColor_Red", "Player_Normal", "Player_Mask"),
             Racket = Textured("Racket", PlayerArtDir, "Racket_BaseColor", "Racket_Normal", "Racket_Mask"),
@@ -539,6 +549,23 @@ namespace TennisSim.EditorTools
             });
         }
 
+        /// <summary>A ring with four ticks pointing in, like a gun sight: it reads as a target, not as the ball's landing ring.</summary>
+        static Texture2D CrosshairTexture()
+        {
+            const int Size = 128;
+            return SaveTexture("Crosshair", Size, TextureWrapMode.Clamp, (x, y) =>
+            {
+                float r = RadiusFromCentre(x, y, Size);
+                float ring = Mathf.Clamp01(1f - Mathf.Abs(r - 0.82f) * 14f);
+                float half = (Size - 1) * 0.5f;
+                float dx = Mathf.Abs(x - half) / half, dy = Mathf.Abs(y - half) / half;
+                bool onAxis = dx < 0.045f || dy < 0.045f;
+                float tick = onAxis && r > 0.42f && r < 0.95f ? 1f : 0f;
+                float dot = Mathf.Clamp01(1f - r * 9f);
+                return new Color(1f, 1f, 1f, Mathf.Max(ring, Mathf.Max(tick, dot)));
+            });
+        }
+
         static float RadiusFromCentre(int x, int y, int size)
         {
             float half = (size - 1) * 0.5f;
@@ -699,6 +726,8 @@ namespace TennisSim.EditorTools
             AnimatorController animator = BuildAnimator();
             PlayerController near = BuildPlayer("Player Near", m.NearPlayer, m, animator, ball);
             PlayerController far = BuildPlayer("Player Far", m.FarPlayer, m, animator, ball);
+            BuildAimCursor(near, m.AimNear);
+            BuildAimCursor(far, m.AimFar);
 
             var inputManager = new GameObject("InputManager").AddComponent<InputManager>();
             inputManager.actions = Load<InputActionAsset>(ControlsPath);
@@ -1101,6 +1130,15 @@ namespace TennisSim.EditorTools
             controller.landingMarker = FlatQuad("Landing Marker", m.LandingMarker, 0.7f);
             controller.landingMarker.gameObject.SetActive(false);
             return controller;
+        }
+
+        /// <summary>The marker lives in the world, not under the player, who moves and turns under it.</summary>
+        static void BuildAimCursor(PlayerController player, Material material)
+        {
+            var view = player.gameObject.AddComponent<AimCursorView>();
+            view.player = player;
+            view.marker = FlatQuad(player.name + " Aim", material, 1.4f);
+            view.marker.gameObject.SetActive(false);
         }
 
         static Transform FlatQuad(string name, Material material, float size)

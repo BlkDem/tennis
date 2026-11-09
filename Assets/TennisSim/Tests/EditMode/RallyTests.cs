@@ -384,11 +384,14 @@ namespace TennisSim.Tests
             public bool Hold;
             public Vector2 Aim;
             public Vector2 Move;
+            /// <summary>Keyboard play: the movement keys steer the aim cursor during the toss.</summary>
+            public bool Cursor;
+            public Vector2 TossMove;
             bool held;
 
             public PlayerIntent ReadIntent(in PlayerPerception p)
             {
-                var intent = new PlayerIntent { Aim = Aim, Move = Move };
+                var intent = new PlayerIntent { Aim = Aim, Move = p.Tossing ? TossMove : Move, AimCursor = Cursor };
                 if (!p.IsServer) return intent;
                 if (p.AwaitingServe)
                 {
@@ -465,6 +468,21 @@ namespace TennisSim.Tests
             }
             TestContext.WriteLine($"{kind}: {inside}/{Seeds} in");
             Assert.That(inside / (float)Seeds, Is.GreaterThanOrEqualTo(minInRate));
+        }
+
+        [Test]
+        public void Serve_CursorPicksTheSpotInTheBox()
+        {
+            // The first point is served from the deuce side into the far box left of the centre line, x from -4.1 to 0.
+            var tuning = new ShotTuning();
+            float centre = FirstServe(new ScriptedServer { Cursor = true }, 2).serve.AimedTarget.x;
+            float toT = FirstServe(new ScriptedServer { Cursor = true, TossMove = new Vector2(1f, 0f) }, 2).serve.AimedTarget.x;
+            float wide = FirstServe(new ScriptedServer { Cursor = true, TossMove = new Vector2(-1f, 0f) }, 2).serve.AimedTarget.x;
+            TestContext.WriteLine($"aimed x: centre {centre:F2}, T {toT:F2}, wide {wide:F2}");
+
+            Assert.That(centre, Is.EqualTo(-CourtGeometry.HalfSinglesWidth * 0.5f).Within(0.01f), "the cursor starts in the middle of the box");
+            Assert.That(toT, Is.EqualTo(-tuning.ServeLineMargin).Within(0.01f), "held right, it goes down the T and stops off the line");
+            Assert.That(wide, Is.EqualTo(-CourtGeometry.HalfSinglesWidth + tuning.ServeLineMargin).Within(0.01f));
         }
 
         [Test]
@@ -831,6 +849,55 @@ namespace TennisSim.Tests
                     if (e.Type == RallyEventType.Hit && e.Slot == PlayerSlot.Near) hit = true;
             }
             Assert.That(hit, Is.True);
+        }
+
+        /// <summary>Keyboard play: holds a shot from the moment the ball can be played, with the movement keys held as given.</summary>
+        sealed class CursorWhilePreparing : IPlayerIntentSource
+        {
+            public Vector2 Move;
+            bool held;
+
+            public PlayerIntent ReadIntent(in PlayerPerception p)
+            {
+                var intent = new PlayerIntent { Move = Move, AimCursor = true };
+                if (p.AwaitingServe) return intent;
+                if (p.CanHit && !held)
+                {
+                    intent.Pressed = ShotButton.Auto;
+                    held = true;
+                }
+                return intent;
+            }
+        }
+
+        static (ShotResult? shot, Vector3 position, Vector2 lastTarget, float charge) PlayHeldShot(Vector2 keys)
+        {
+            (RallySession session, PlayerAgent near) = IncomingDeepBall(new CursorWhilePreparing { Move = keys });
+            Vector2 lastTarget = default;
+            float charge = 0f;
+            for (int i = 0; i < (int)(2.5f / Dt); i++)
+            {
+                if (near.AimingWithCursor) lastTarget = near.AimTarget;
+                charge = Mathf.Max(charge, near.Shot.Charge);
+                session.Tick(Dt);
+                foreach (RallyEvent e in session.Events)
+                    if (e.Type == RallyEventType.Hit && e.Slot == PlayerSlot.Near) return (e.Shot, near.Position, lastTarget, charge);
+            }
+            return (null, near.Position, lastTarget, charge);
+        }
+
+        [Test]
+        public void Cursor_KeysAimWhileTheShotIsHeldAndThePlayerRunsByThemselves()
+        {
+            (ShotResult? still, Vector3 stillAt, _, _) = PlayHeldShot(Vector2.zero);
+            (ShotResult? right, Vector3 rightAt, Vector2 cursor, float charge) = PlayHeldShot(new Vector2(1f, 0f));
+
+            Assert.That(still.HasValue && right.HasValue, Is.True, "with the keys busy aiming, the player still gets to the ball");
+            TestContext.WriteLine($"aimed x: keys off {still.Value.AimedTarget.x:F2}, D held {right.Value.AimedTarget.x:F2}; player at {stillAt} and {rightAt}; charge {charge:F2}");
+            Assert.That(right.Value.AimedTarget.x, Is.GreaterThan(still.Value.AimedTarget.x + 2f), "holding D moves the aim to the right");
+            Assert.That(right.Value.AimedTarget.x, Is.EqualTo(cursor.x).Within(0.1f), "the ball is aimed where the cursor was");
+            Assert.That(Vector3.Distance(stillAt, rightAt), Is.LessThan(0.3f), "the key aims instead of moving the player");
+            Assert.That(charge, Is.GreaterThan(0.5f), "the hold charged the shot");
         }
 
         [Test]

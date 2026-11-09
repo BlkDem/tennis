@@ -79,8 +79,12 @@ namespace TennisSim.Simulation
         [Tooltip("A held button auto-swings this late relative to the ideal moment, so waiting never beats good timing.")]
         public float AutoSwingLateness = 0.075f;
         public float RecoveryTime = 0.16f;
-        [Tooltip("Preparation time that gives full power.")]
+        [Tooltip("Holding the button this long before the swing charges the shot to full power.")]
         public float FullPreparationTime = 0.7f;
+        [Tooltip("Share of a shot's power that comes from the charge; the rest comes from how well the ball was met.")]
+        public float ChargePowerShare = 0.6f;
+        [Tooltip("How fast the keyboard's aim cursor crosses the court while a shot is held, m/s.")]
+        public float AimCursorSpeed = 8f;
 
         [Header("Reach, metres")]
         public float StrikeLateral = 0.85f;

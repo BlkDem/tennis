@@ -9,6 +9,7 @@ namespace TennisSim.Simulation
     /// <summary>
     /// The timing heart of the game. Press = prepare, release = swing, and the racket reaches its sweet spot
     /// a fixed time later. Holding through the ball auto-swings slightly late: always playable, never best.
+    /// The longer the preparation, the more power the shot is charged with.
     /// </summary>
     public sealed class PlayerShotController
     {
@@ -29,6 +30,7 @@ namespace TennisSim.Simulation
         float preparationHeld;
         float previousDistance;
         float nextSteeringReplan;
+        float lastNow;
         bool hasPreviousDistance;
         ShotButton? bufferedPress;
 
@@ -38,6 +40,21 @@ namespace TennisSim.Simulation
         public ShotButton ActiveButton { get; private set; }
         public ContactPlan Plan { get; private set; }
         public HandSide DisplaySide { get; private set; }
+
+        /// <summary>
+        /// 0..1: how far holding the button has charged the shot's power. It grows while preparing and is fixed when
+        /// the swing starts; the next shot starts again from nothing.
+        /// </summary>
+        public float Charge
+        {
+            get
+            {
+                float full = Mathf.Max(tuning.FullPreparationTime, 1e-3f);
+                if (Phase == SwingPhase.Preparing) return Mathf.Clamp01((lastNow - preparationStart) / full);
+                if (Phase == SwingPhase.Swinging) return Mathf.Clamp01(preparationHeld / full);
+                return 0f;
+            }
+        }
 
         public PlayerShotController(PlayerSlot slot, ShotTuning tuning, PlayerMovementTuning movementTuning, in BallPhysicsParams physics, Random rng)
         {
@@ -59,8 +76,11 @@ namespace TennisSim.Simulation
 
         /// <summary>Returns a shot when the racket met the ball this tick.</summary>
         /// <param name="playerSteering">The stick is moving the player, so the contact point has to follow them.</param>
-        public ShotResult? Tick(in PlayerPerception p, in PlayerIntent intent, Vector3 velocity, float maxSpeed, Vector2 aim, bool playerSteering = false)
+        /// <param name="target">A point picked with the aim cursor, world X and Z; replaces <paramref name="aim"/> when set.</param>
+        public ShotResult? Tick(in PlayerPerception p, in PlayerIntent intent, Vector3 velocity, float maxSpeed, Vector2 aim, bool playerSteering = false,
+            Vector2? target = null)
         {
+            lastNow = p.Now;
             HandleButtons(p, intent, maxSpeed);
 
             switch (Phase)
@@ -69,7 +89,7 @@ namespace TennisSim.Simulation
                     TickPreparing(p, maxSpeed, playerSteering);
                     break;
                 case SwingPhase.Swinging:
-                    return TickSwinging(p, velocity, aim);
+                    return TickSwinging(p, velocity, aim, target);
                 case SwingPhase.Recovering:
                     if (p.Now >= phaseEnd)
                     {
@@ -139,7 +159,7 @@ namespace TennisSim.Simulation
             Phase = SwingPhase.Swinging;
         }
 
-        ShotResult? TickSwinging(in PlayerPerception p, Vector3 velocity, Vector2 aim)
+        ShotResult? TickSwinging(in PlayerPerception p, Vector3 velocity, Vector2 aim, Vector2? target)
         {
             float sweetTime = swingStart + tuning.SwingLatency;
 
@@ -160,7 +180,7 @@ namespace TennisSim.Simulation
                 if (inReach && (p.Now >= sweetTime || leaving))
                 {
                     DisplaySide = side;
-                    ShotResult shot = BuildShot(p, side, ball, strike, distance, sweetTime, velocity, aim);
+                    ShotResult shot = BuildShot(p, side, ball, strike, distance, sweetTime, velocity, aim, target);
                     EnterRecovery(p.Now);
                     return shot;
                 }
@@ -170,7 +190,8 @@ namespace TennisSim.Simulation
             return null;
         }
 
-        ShotResult BuildShot(in PlayerPerception p, HandSide side, Vector3 ball, Vector3 strike, float distance, float sweetTime, Vector3 velocity, Vector2 aim)
+        ShotResult BuildShot(in PlayerPerception p, HandSide side, Vector3 ball, Vector3 strike, float distance, float sweetTime, Vector3 velocity, Vector2 aim,
+            Vector2? target)
         {
             float closestTime = ClosestApproachTime(p, strike);
             float moveRatio = velocity.magnitude / Mathf.Max(movementTuning.SprintSpeed, 0.1f);
@@ -188,6 +209,7 @@ namespace TennisSim.Simulation
                 Side = side,
                 Contact = contact,
                 Aim = aim,
+                Target = target,
                 Preparation = preparationHeld / tuning.FullPreparationTime,
             };
             return ShotPlanner.Plan(context, tuning, physics, rng);

@@ -85,6 +85,10 @@ namespace TennisSim
         Vector3 headFaceLocal;
         Quaternion lookOffset = Quaternion.identity;
 
+        // Every bone this rig moves, with the pose the Animator gave it and the pose the rig left it in last frame.
+        Transform[] adjusted;
+        Pose[] animatedPose, writtenPose;
+
         float contactTime = float.NegativeInfinity;
         Vector3 contactPoint;
         bool hitRecorded;
@@ -158,7 +162,41 @@ namespace TennisSim
 
             Ready = hips != null && spine != null && head != null && leftUpperArm != null && leftLowerArm != null && leftHand != null && neck != null && upperArm != null && lowerArm != null && hand != null
                     && racket != null && racketHeadLocal != Vector3.zero && headFaceLocal != Vector3.zero && upperLegs.All(t => t != null) && lowerLegs.All(t => t != null) && feet.All(t => t != null);
-            if (!Ready) Debug.LogWarning($"[Tennis] {name}: the rig lacks bones for IK, so clips play unadjusted.");
+            if (!Ready)
+            {
+                Debug.LogWarning($"[Tennis] {name}: the rig lacks bones for IK, so clips play unadjusted.");
+                return;
+            }
+            adjusted = new[] { hips, spine, neck, head, upperArm, lowerArm, hand, leftUpperArm, leftLowerArm, leftHand }
+                .Concat(upperLegs).Concat(lowerLegs).Concat(feet).ToArray();
+            animatedPose = new Pose[adjusted.Length];
+            writtenPose = new Pose[adjusted.Length];
+            for (int i = 0; i < adjusted.Length; i++)
+                animatedPose[i] = writtenPose[i] = new Pose(adjusted[i].localPosition, adjusted[i].localRotation);
+        }
+
+        /// <summary>
+        /// The Animator only writes bones its clips animate. The neck follows the chest in every clip, so it has no
+        /// curves and keeps whatever it was last given: without this, each frame's look would add to the last, and the
+        /// head would drift until it sank into the shoulders. A bone still exactly as the rig left it was not written
+        /// this frame, so it gets back the Animator's pose from before the rig touched it.
+        /// </summary>
+        void RestoreUnanimatedBones()
+        {
+            for (int i = 0; i < adjusted.Length; i++)
+            {
+                Transform bone = adjusted[i];
+                Pose written = writtenPose[i];
+                if (bone.localRotation == written.rotation && bone.localPosition == written.position)
+                    bone.SetLocalPositionAndRotation(animatedPose[i].position, animatedPose[i].rotation);
+                animatedPose[i] = new Pose(bone.localPosition, bone.localRotation);
+            }
+        }
+
+        void RememberWrittenBones()
+        {
+            for (int i = 0; i < adjusted.Length; i++)
+                writtenPose[i] = new Pose(adjusted[i].localPosition, adjusted[i].localRotation);
         }
 
         void OnEnable() => GameEvents.RallyEvent += OnRallyEvent;
@@ -176,7 +214,15 @@ namespace TennisSim
 
         void LateUpdate()
         {
-            if (!Ready || ball == null || player.Session == null || player.Agent == null) return;
+            if (!Ready) return;
+            RestoreUnanimatedBones();
+            Adjust();
+            RememberWrittenBones();
+        }
+
+        void Adjust()
+        {
+            if (ball == null || player.Session == null || player.Agent == null) return;
             if (session != player.Session)
             {
                 session = player.Session;
