@@ -9,6 +9,8 @@
 /[Mm]emoryCaptures/
 /[Rr]ecordings/
 /TestResults/
+# Burst's WebGL output, written next to the project on every web build
+/Data/
 
 # IDE
 .vs/
