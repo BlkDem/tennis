@@ -14,10 +14,13 @@
     #note { max-width: 80vw; font-size: 15px; line-height: 1.5; text-align: center; color: #9aaab5; }
     #note b { color: #e8eef2; }
     .error { color: #ff7b6b; }
+    #windows { position: fixed; right: 12px; bottom: 10px; z-index: 10; padding: 6px 12px; border-radius: 6px; background: rgba(11, 22, 32, 0.7); color: #f8cc38; font-size: 14px; text-decoration: none; }
+    #windows:hover { background: rgba(11, 22, 32, 0.95); }
   </style>
 </head>
 <body>
   <canvas id="unity-canvas" tabindex="-1"></canvas>
+  <a id="windows" href="/download/" target="_blank" rel="noopener">Скачать для Windows</a>
   <div id="loader">
     <div id="title">TENNIS SIMULATOR</div>
     <div id="bar"><div id="fill"></div></div>

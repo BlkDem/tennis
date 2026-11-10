@@ -130,7 +130,10 @@ namespace TennisSim.EditorTools
 
         /// <summary>Run in batch with: -executeMethod TennisSim.EditorTools.ProjectBuilder.BuildWindowsPlayer</summary>
         [MenuItem("Tennis/Build Windows Player")]
-        public static void BuildWindowsPlayer()
+        public static void BuildWindowsPlayer() => BuildWindowsPlayer(BuildVersion.Resolve());
+
+        /// <summary>The Windows player into Build/Windows, stamped with the given version; returns its folder.</summary>
+        public static string BuildWindowsPlayer(string version)
         {
             var options = new BuildPlayerOptions
             {
@@ -139,11 +142,12 @@ namespace TennisSim.EditorTools
                 target = BuildTarget.StandaloneWindows64,
             };
 
-            BuildSummary summary = BuildPipeline.BuildPlayer(options).summary;
+            BuildSummary summary = BuildVersion.Stamped(version, () => BuildPipeline.BuildPlayer(options).summary);
             if (summary.result != BuildResult.Succeeded)
                 throw new System.InvalidOperationException($"[Tennis] Player build failed: {summary.result}, {summary.totalErrors} errors.");
 
-            Debug.Log("[Tennis] Player built: " + Path.GetFullPath(WindowsPlayerPath));
+            Debug.Log($"[Tennis] Player {version} built: " + Path.GetFullPath(WindowsPlayerPath));
+            return Path.GetDirectoryName(Path.GetFullPath(WindowsPlayerPath));
         }
 
         /// <summary>
@@ -170,7 +174,7 @@ namespace TennisSim.EditorTools
                 target = BuildTarget.WebGL,
             };
 
-            BuildSummary summary = BuildPipeline.BuildPlayer(options).summary;
+            BuildSummary summary = BuildVersion.Stamped(BuildVersion.Resolve(), () => BuildPipeline.BuildPlayer(options).summary);
             if (summary.result != BuildResult.Succeeded)
                 throw new System.InvalidOperationException($"[Tennis] WebGL build failed: {summary.result}, {summary.totalErrors} errors.");
 

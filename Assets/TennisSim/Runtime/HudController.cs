@@ -68,6 +68,7 @@ namespace TennisSim
             BuildResult();
             BuildSettings();
             BuildControls();
+            BuildUpdateDialog();
         }
 
         void OnEnable()
@@ -82,7 +83,11 @@ namespace TennisSim
             if (game != null) game.Changed -= Refresh;
         }
 
-        void Start() => Refresh();
+        void Start()
+        {
+            Refresh();
+            StartCoroutine(CheckForUpdate());
+        }
 
         // ---------------------------------------------------------------- State
 
@@ -96,7 +101,7 @@ namespace TennisSim
                 controls.SetActive(false);
                 game.PauseKeysBlocked = false;
             }
-            menu.SetActive(phase == GamePhase.Menu && !SettingsOpen);
+            menu.SetActive(phase == GamePhase.Menu && !SettingsOpen && !UpdateOpen);
             hud.SetActive(phase != GamePhase.Menu);
             pause.SetActive(phase == GamePhase.Paused && !SettingsOpen);
             result.SetActive(phase == GamePhase.MatchOver);
@@ -117,6 +122,7 @@ namespace TennisSim
         void Update()
         {
             UpdateSettingsKeys();
+            UpdateUpdateDialog();
             if (game == null || game.Session == null || !hud.activeSelf) return;
             RallySession session = game.Session;
             TennisScore score = session.Score;

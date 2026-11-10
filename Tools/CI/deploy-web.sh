@@ -9,6 +9,8 @@
 #
 # The CI deploy key is restricted on the server to rrsync in the site folder, so CI passes an empty remote_dir:
 # paths are then relative to that folder.
+#
+# download/ holds the Windows releases (Tools/Release/deploy-windows.sh) and is left alone.
 set -euo pipefail
 
 BUILD_DIR="${1:-Build/WebGL}"
@@ -24,7 +26,7 @@ fi
 echo "Deploying $BUILD_DIR to $HOST:${REMOTE_DIR:-<site folder>}"
 if command -v rsync >/dev/null 2>&1; then
   # Group-writable files, so both the hosting panel's user and the deploy user can replace them.
-  rsync -rlt --delete --delay-updates --chmod=Dug=rwx,Do=rx,Fug=rw,Fo=r -e "$SSH" "$BUILD_DIR/" "$HOST:$REMOTE_DIR/"
+  rsync -rlt --delete --delay-updates --exclude=/download/ --chmod=Dug=rwx,Do=rx,Fug=rw,Fo=r -e "$SSH" "$BUILD_DIR/" "$HOST:$REMOTE_DIR/"
 else
   if [[ -z "$REMOTE_DIR" ]]; then
     echo "The tar fallback needs the full remote path" >&2
@@ -32,7 +34,7 @@ else
   fi
   # The site folder itself belongs to the hosting panel's user: leave its mode and times alone, touch only what we upload.
   tar -C "$BUILD_DIR" -czf - . | $SSH "$HOST" \
-    "set -e; cd '$REMOTE_DIR'; find . -mindepth 1 -delete; tar -xzf - -o -m --no-overwrite-dir; \
+    "set -e; cd '$REMOTE_DIR'; find . -mindepth 1 -maxdepth 1 ! -name download -exec rm -rf {} +; tar -xzf - -o -m --no-overwrite-dir; \
      find . -mindepth 1 -user \$(id -un) -exec chmod ug+rw,o+r {} +; find . -mindepth 1 -type d -user \$(id -un) -exec chmod g+s {} +"
 fi
 echo "Deployed."
