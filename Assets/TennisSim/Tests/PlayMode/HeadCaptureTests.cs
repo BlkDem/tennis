@@ -246,6 +246,7 @@ namespace TennisSim.Tests
             Time.captureDeltaTime = 1f / 30f;
             PlayerController player = game.nearPlayer;
             PlayerAgent agent = player.Agent;
+            if (System.Environment.GetEnvironmentVariable("TENNIS_NO_IK") == "1") player.GetComponent<PlayerIkRig>().enabled = false;
             var cameraObject = new GameObject("Serve Camera");
             var camera = cameraObject.AddComponent<Camera>();
             camera.clearFlags = CameraClearFlags.SolidColor;

@@ -60,7 +60,8 @@ namespace TennisSim.Simulation
         public Vector2 AimTarget { get; private set; }
         /// <summary>Between points the session walks the player to their next place; their own input waits.</summary>
         public Vector3? WalkTarget { get; set; }
-        public const float BetweenPointsWalkSpeed = 3f;
+        /// <summary>A brisk walk, the fastest the walk clip plays: any faster and the player jogs back to place.</summary>
+        public const float BetweenPointsWalkSpeed = 2f;
 
         public PlayerAgent(PlayerSlot slot, PlayerMovementTuning movementTuning, ShotTuning shotTuning, in BallPhysicsParams physics, Random rng)
         {

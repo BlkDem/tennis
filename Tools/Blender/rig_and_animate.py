@@ -24,14 +24,27 @@ WALK_SPEED = 1.4
 JOG_SPEED = 3.5
 SWING_LATENCY = 0.14
 
-# The gaits, slowest first; ProjectBuilder blends them by these speeds. Per gait: name, speed (m/s), cycle (s), share of
-# the cycle a foot is on the ground, foot lift, half the gap between the feet, crouch, bounce (m), lean, arm swing,
-# hip turn (degrees, metres) and how far the hips turn into a sideways stride. Must match PlayerAnimationController.Gaits.
+# The gaits, slowest first; ProjectBuilder blends them by these speeds, which must match PlayerAnimationController.Gaits.
+#   speed: m/s; cycle: seconds for two steps; stance: share of the cycle a foot is on the ground
+#   front: share of the planted foot's travel ahead of the hip, the rest behind: a foot lands nearly under the body
+#          and pushes off well behind it
+#   lift: swing foot height; heel: how far the heel has peeled up as the foot pushes off; land_pitch: toes up at landing
+#   width: half the gap between the feet; crouch, bounce: the hips' height in a run, lowest in mid-stance (m). A walk
+#          has no crouch of its own: the hips ride over a nearly straight leg, highest in mid-stance, and drop only as
+#          far as the leg needs to reach its foot (see reach_limited_hips)
+#   lean, hip: degrees forward and of hip swing; arm: arm swing (m); side_turn: how far the hips turn into a sideways stride
+# The cycles are short because this model's legs are: hip joint to ankle is 0.58 m, and a planted foot cannot travel
+# further than that leg reaches either side of the hip.
 GAITS = (
-    ("Walk", WALK_SPEED, 0.96, 0.60, 0.08, 0.12, 0.03, 0.012, 3.0, 0.10, 5.0, 55.0),
-    ("Jog", JOG_SPEED, 0.70, 0.36, 0.15, 0.13, 0.05, 0.022, 9.0, 0.15, 9.0, 65.0),
-    ("Run", RUN_SPEED, 0.60, 0.28, 0.22, 0.13, 0.07, 0.03, 16.0, 0.2, 12.0, 70.0),
+    dict(name="Walk", speed=WALK_SPEED, cycle=0.78, stance=0.60, front=0.40, lift=0.06, heel=0.10, land_pitch=10.0,
+         width=0.10, crouch=0.0, bounce=0.0, lean=3.0, arm=0.12, hip=6.0, side_turn=55.0),
+    dict(name="Jog", speed=JOG_SPEED, cycle=0.66, stance=0.27, front=0.40, lift=0.13, heel=0.10, land_pitch=4.0,
+         width=0.11, crouch=0.035, bounce=0.02, lean=8.0, arm=0.16, hip=9.0, side_turn=65.0),
+    dict(name="Run", speed=RUN_SPEED, cycle=0.56, stance=0.185, front=0.37, lift=0.20, heel=0.12, land_pitch=0.0,
+         width=0.11, crouch=0.05, bounce=0.03, lean=14.0, arm=0.22, hip=12.0, side_turn=70.0),
 )
+# The least the knee bends with the foot planted, degrees: a leg locked straight reads as a stilt.
+MIN_KNEE_BEND = 10.0
 # The retreats travel this close to straight back, degrees clockwise from straight ahead, with the hips turned this far;
 # must match PlayerAnimationController.RetreatSideAngle.
 RETREAT_TRAVEL = 175.0
@@ -460,8 +473,9 @@ def make_pose(**overrides):
 
 READY = make_pose()
 
+# Standing at ease the knees are all but straight.
 STANDING = make_pose(
-    pelvis_pos=(0.0, 0.0, -0.02),
+    pelvis_pos=(0.0, 0.0, -0.006),
     pelvis_rot=(1.0, 0.0, 0.0),
     spine_rot=(1.0, 0.0, 0.0),
     chest_rot=(1.0, 0.0, 0.0),
@@ -722,16 +736,19 @@ SMASH_FINISH = make_pose(
 # The serve is played side-on, like a real right-hander's platform stance: the front (left) foot just behind the
 # baseline, pointing at the right net post; the back foot behind it, nearly along the baseline; hips and shoulders
 # turned towards the right sideline, the head turned back to the box.
-SERVE_FOOT_L = (-0.1, 0.2, 0.225)
-SERVE_FOOT_R = (0.22, -0.22, 0.225)
+SERVE_FOOT_L = (-0.08, 0.17, 0.225)
+SERVE_FOOT_R = (0.17, -0.17, 0.225)
 SERVE_FOOT_L_ROT = (0.0, 35.0)
 SERVE_FOOT_R_ROT = (0.0, 60.0)
-# The knees bend towards the court, not along the turned feet: seen from behind, knees bent along the feet read as the
-# legs folding sideways.
-SERVE_KNEE_FOLLOW = (0.3,)
+# The knees bend over the toes, as knees do: a knee pointing anywhere else than its foot twists the shin. The bend is
+# kept moderate, so from behind the legs read as loaded springs rather than folding sideways.
+SERVE_KNEE_FOLLOW = (1.0,)
+SERVE_KNEE_OUT = (0.1,)
+# Off the ground the legs hang straight below the body, knees forward and together, whatever way the feet turn.
+SERVE_AIR_KNEES = dict(knee_follow=(0.3,), knee_out=(0.0,))
 
 SERVE_START = make_pose(
-    pelvis_pos=(0.04, 0.0, -0.04),
+    pelvis_pos=(0.04, 0.0, -0.012),
     pelvis_rot=(2.0, 45.0, 0.0),
     spine_rot=(2.0, 10.0, 0.0),
     chest_rot=(3.0, 8.0, 0.0),
@@ -741,6 +758,7 @@ SERVE_START = make_pose(
     foot_l_rot=SERVE_FOOT_L_ROT,
     foot_r_rot=SERVE_FOOT_R_ROT,
     knee_follow=SERVE_KNEE_FOLLOW,
+    knee_out=SERVE_KNEE_OUT,
     grip=(0.08, 0.28, 1.08),
     racket=(-0.15, 0.8, 0.55),
     face=(0.9, 0.2, 0.1),
@@ -752,16 +770,17 @@ SERVE_START = make_pose(
 # The trophy position: the tossing arm straight up, the racket up behind the head, the knees bent towards the court
 # and the hips pushed forward over the front foot, the shoulders turned past the hips and arched back.
 SERVE_TOSS = make_pose(
-    pelvis_pos=(0.0, 0.16, -0.14),
+    pelvis_pos=(0.0, 0.12, -0.075),
     pelvis_rot=(-4.0, 45.0, 0.0),
     spine_rot=(-10.0, 14.0, 0.0),
     chest_rot=(-12.0, 22.0, 0.0),
     head_rot=(-30.0, -50.0, 0.0),
     foot_l=SERVE_FOOT_L,
-    foot_r=SERVE_FOOT_R,
+    foot_r=(0.17, -0.17, 0.24),
     foot_l_rot=SERVE_FOOT_L_ROT,
-    foot_r_rot=(-15.0, 60.0),
+    foot_r_rot=(-10.0, 60.0),
     knee_follow=SERVE_KNEE_FOLLOW,
+    knee_out=SERVE_KNEE_OUT,
     grip=(0.3, -0.3, 1.62),
     racket=(0.1, -0.45, 0.88),
     face=(0.9, 0.0, 0.42),
@@ -772,16 +791,17 @@ SERVE_TOSS = make_pose(
 )
 # The legs drive up as the racket drops behind the back: onto the toes, the hips starting to turn back.
 SERVE_DROP = make_pose(
-    pelvis_pos=(0.0, 0.18, -0.06),
+    pelvis_pos=(0.0, 0.16, -0.035),
     pelvis_rot=(-2.0, 30.0, 0.0),
     spine_rot=(-9.0, 8.0, 0.0),
     chest_rot=(-13.0, 4.0, 0.0),
     head_rot=(-32.0, -28.0, 0.0),
-    foot_l=(-0.1, 0.2, 0.27),
-    foot_r=(0.2, -0.2, 0.3),
-    foot_l_rot=(-18.0, 35.0),
-    foot_r_rot=(-30.0, 58.0),
+    foot_l=(-0.08, 0.17, 0.27),
+    foot_r=(0.15, -0.15, 0.3),
+    foot_l_rot=(-18.0, 30.0),
+    foot_r_rot=(-30.0, 50.0),
     knee_follow=SERVE_KNEE_FOLLOW,
+    knee_out=SERVE_KNEE_OUT,
     grip=(0.33, -0.08, 1.6),
     racket=(0.05, -0.35, -0.94),
     face=(0.95, 0.0, 0.1),
@@ -798,10 +818,12 @@ SERVE_CONTACT = make_pose(
     spine_rot=(6.0, -6.0, 0.0),
     chest_rot=(10.0, -10.0, 0.0),
     head_rot=(-30.0, 0.0, 0.0),
-    foot_l=(-0.08, 0.26, 0.31),
-    foot_r=(0.12, -0.04, 0.36),
-    foot_l_rot=(-35.0, 25.0),
-    foot_r_rot=(-45.0, 45.0),
+    # The front leg straight below, the back one trailing a little behind and higher, knees together.
+    foot_l=(-0.05, 0.2, 0.30),
+    foot_r=(0.05, -0.1, 0.40),
+    foot_l_rot=(-40.0, 12.0),
+    foot_r_rot=(-55.0, 10.0),
+    **SERVE_AIR_KNEES,
     grip=(0.27, 0.25, 1.99),
     racket=(0.02, 0.25, 0.97),
     face=(0.0, 0.97, -0.25),
@@ -816,10 +838,12 @@ SERVE_LAND = make_pose(
     spine_rot=(12.0, -16.0, 0.0),
     chest_rot=(14.0, -20.0, 0.0),
     head_rot=(-10.0, 10.0, 0.0),
-    foot_l=(-0.12, 0.38, 0.225),
-    foot_r=(0.2, -0.15, 0.5),
+    # The back leg kicks up behind, the knee pointing down, not out.
+    foot_l=(-0.1, 0.38, 0.225),
+    foot_r=(0.02, -0.1, 0.52),
     foot_l_rot=(0.0, 5.0),
-    foot_r_rot=(-60.0, 30.0),
+    foot_r_rot=(-70.0, 0.0),
+    **SERVE_AIR_KNEES,
     grip=(-0.25, 0.5, 0.95),
     racket=(-0.48, 0.2, -0.85),
     face=(-0.3, 0.9, 0.2),
@@ -948,50 +972,116 @@ def blend_pose(a, b, amount):
     return {key: a[key] * (1.0 - amount) + b[key] * amount for key in a}
 
 
-def foot_cycle(phase, stride, stance_fraction, lift):
-    """Position along the travel direction and height of a foot, for phase in 0..1, with the foot planted during stance."""
+def smoothstep(x):
+    x = min(1.0, max(0.0, x))
+    return x * x * (3.0 - 2.0 * x)
+
+
+# Ankle to the ball of the foot, metres: the heel peels up about the ball.
+FOOT_LEVER = 0.22
+# Over this last share of the stance the heel peels off the ground.
+HEEL_PEEL = 0.45
+
+
+def foot_cycle(phase, front, back, stance_fraction, lift, heel, land_pitch):
+    """
+    Along the travel, height and pitch (negative: toes down) of an ankle for phase in 0..1. Planted, the foot runs
+    at an even pace from front of the hip to behind it, the heel peeling up at the end as it pushes off; then it
+    swings through, the toes coming up to land.
+    """
     phase %= 1.0
+    stride = front + back
     if phase < stance_fraction:
-        return stride * 0.5 * (1.0 - 2.0 * phase / stance_fraction), 0.0
+        u = phase / stance_fraction
+        rise = heel * smoothstep((u - (1.0 - HEEL_PEEL)) / HEEL_PEEL)
+        # Landing toes up, the foot rolls flat over the first part of the stance.
+        pitch = land_pitch * (1.0 - smoothstep(u / 0.2)) - math.degrees(math.asin(rise / FOOT_LEVER))
+        return front - stride * u, rise, pitch
     swing = (phase - stance_fraction) / (1.0 - stance_fraction)
-    smooth = swing * swing * (3.0 - 2.0 * swing)
-    return stride * 0.5 * (2.0 * smooth - 1.0), lift * math.sin(math.pi * swing)
+    s = smoothstep(swing)
+    off = -math.degrees(math.asin(heel / FOOT_LEVER))
+    return -back + stride * s, lift * math.sin(math.pi * swing) + heel * (1.0 - s), off + (land_pitch - off) * s
 
 
-def gait_pose(base, phase, direction, speed, cycle, stance_fraction, lift, width, crouch, bounce, lean, roll, arm_swing, hip_turn, racket_low):
+def leg_reach():
+    """The farthest from hip joint to ankle with the knee bent by MIN_KNEE_BEND."""
+    hip, knee, _, _ = SKIN_BONES["L_UpperLeg"]
+    upper = (knee - hip).length
+    lower = (SKIN_BONES["L_LowerLeg"][1] - knee).length
+    return math.sqrt(upper * upper + lower * lower + 2.0 * upper * lower * math.cos(math.radians(MIN_KNEE_BEND)))
+
+
+def hip_joint(prefix, pelvis_pos, pelvis_rot):
+    """Where the solver puts a hip joint for this pelvis, in armature space."""
+    hips_head = SKIN_BONES["Hips"][0]
+    joint = SKIN_BONES[prefix + "UpperLeg"][0]
+    return hips_head + to_blender(pelvis_pos) + body_rotation(*pelvis_rot) @ (joint - hips_head)
+
+
+LEGS = (("L_", "foot_l"), ("R_", "foot_r"))
+
+
+def reach_limited_hips(pose, planted):
+    """
+    Lowers the hips just enough that each planted leg reaches its foot: a walk's hips then rise over the planted leg
+    and dip as the weight passes from one foot to the other, as a real walk's do. A swinging foot out of reach is drawn
+    in towards its hip instead, the knee folding as it leaves the ground.
+    """
+    reach = leg_reach()
+    height = pose["pelvis_pos"][2]
+    for (prefix, key), down in zip(LEGS, planted):
+        if not down:
+            continue
+        hip = hip_joint(prefix, pose["pelvis_pos"], pose["pelvis_rot"])
+        ankle = to_blender(pose[key])
+        across = (Vector((hip.x, hip.y, 0.0)) - Vector((ankle.x, ankle.y, 0.0))).length
+        if across >= reach:
+            raise ValueError(f"a planted foot {across:.2f} m from its hip across the ground is out of the leg's reach")
+        height = min(height, pose["pelvis_pos"][2] + ankle.z + math.sqrt(reach * reach - across * across) - hip.z)
+    pose["pelvis_pos"] = np.array([pose["pelvis_pos"][0], pose["pelvis_pos"][1], height])
+    for (prefix, key), down in zip(LEGS, planted):
+        hip = hip_joint(prefix, pose["pelvis_pos"], pose["pelvis_rot"])
+        offset = to_blender(pose[key]) - hip
+        if not down and offset.length > reach:
+            pose[key] = np.array(to_blender(hip + offset * (reach / offset.length)))
+    return pose
+
+
+def gait_pose(base, phase, direction, gait, roll=0.0, racket_low=0.0):
     """A travelling cycle. The planted foot moves at exactly the player's speed, so nothing slides at runtime."""
-    stride = speed * cycle * stance_fraction
+    speed, stance_fraction, lean = gait["speed"], gait["stance"], gait["lean"]
+    stride = speed * gait["cycle"] * stance_fraction
+    front, back = stride * gait["front"], stride * (1.0 - gait["front"])
     pose = dict(base)
+    planted = [phase % 1.0 < stance_fraction, (phase + 0.5) % 1.0 < stance_fraction]
 
     for key, foot_phase, side in (("foot_l", phase, -1.0), ("foot_r", phase + 0.5, 1.0)):
-        along, height = foot_cycle(foot_phase, stride, stance_fraction, lift)
-        pose[key] = np.array([side * width + direction[0] * along, direction[1] * along, 0.225 + height])
-        pitch = 0.0
-        travel_phase = foot_phase % 1.0
-        if travel_phase >= stance_fraction and abs(direction[1]) > 0.5:
-            # The heel leads the foot up from the ground and the toes reach for it again: a little in a walk, a lot in a run.
-            swing = (travel_phase - stance_fraction) / (1.0 - stance_fraction)
-            reach = 20.0 + 25.0 * min(1.0, max(0.0, (speed - WALK_SPEED) / (RUN_SPEED - WALK_SPEED)))
-            pitch = -reach * math.sin(math.pi * swing) * direction[1]
+        along, height, pitch = foot_cycle(foot_phase, front, back, stance_fraction, gait["lift"], gait["heel"], gait["land_pitch"])
+        pose[key] = np.array([side * gait["width"] + direction[0] * along, direction[1] * along, 0.225 + height])
         # Feet point almost straight along a stride; a sideways shuffle keeps them a little more open.
-        pose[key + "_rot"] = np.array([pitch, side * (5.0 if abs(direction[0]) < 0.5 else 8.0)])
+        pose[key + "_rot"] = np.array([pitch if abs(direction[1]) > 0.5 else 0.0, side * (5.0 if abs(direction[0]) < 0.5 else 8.0)])
 
-    # A stride swings the knees straight ahead; a shuffle with the feet apart bends them a little over the toes.
-    pose["knee_out"] = np.array([0.1 if abs(direction[1]) > 0.5 else 0.3])
+    # The knees swing straight ahead over the feet, in a stride and in a shuffle alike.
+    pose["knee_out"] = np.array([0.05 if abs(direction[1]) > 0.5 else 0.15])
 
-    two_steps = math.cos(4.0 * math.pi * phase)
-    swing = math.sin(2.0 * math.pi * phase)
-    pose["pelvis_pos"] = np.array([direction[0] * lean * 0.004, direction[1] * lean * 0.005, -crouch + bounce * two_steps])
+    # A run is lowest in mid-stance, as the leg takes the landing, and highest in flight.
+    mid_stance = 4.0 * math.pi * (phase - stance_fraction * 0.5)
+    # The hips turn furthest as a foot lands, its own side forward; the shoulders and arms swing against them.
+    swing = math.cos(2.0 * math.pi * phase)
+    hip_turn, arm_swing = gait["hip"], gait["arm"]
+    pose["pelvis_pos"] = np.array([direction[0] * lean * 0.004, direction[1] * lean * 0.005, -gait["crouch"] - gait["bounce"] * math.cos(mid_stance)])
     pose["pelvis_rot"] = np.array([lean * direction[1], swing * hip_turn, roll * direction[0]])
+    reach_limited_hips(pose, planted)
+    crouch = -pose["pelvis_pos"][2]
     pose["spine_rot"] = np.array([lean * 0.4 * direction[1] + 3.0, -swing * hip_turn * 0.7, 0.0])
     pose["chest_rot"] = np.array([lean * 0.3 * direction[1] + 3.0, -swing * hip_turn * 0.7, 0.0])
     pose["head_rot"] = np.array([-(lean * 0.7 * direction[1] + 4.0), 0.0, 0.0])
 
-    # The racket stays low in the right hand, swinging against the left arm.
-    pose["grip"] = np.array([0.44, 0.2 - swing * arm_swing, 1.0 - crouch * 0.4 + racket_low])
-    pose["racket"] = np.array([0.1, 0.8, 0.3 + swing * arm_swing * 0.4])
+    # The racket stays low in the right hand, swinging against the left arm: each arm forward with the opposite foot.
+    pose["grip"] = np.array([0.44, 0.2 + swing * arm_swing, 1.0 - crouch * 0.4 + racket_low])
+    pose["racket"] = np.array([0.1, 0.8, 0.3 - swing * arm_swing * 0.4])
     pose["face"] = np.array([1.0, -0.1, 0.0])
-    pose["hand_l"] = np.array([-0.42, 0.14 + swing * arm_swing, 1.08 - crouch * 0.4 + abs(swing) * arm_swing * 0.25])
+    pose["hand_l"] = np.array([-0.42, 0.14 - swing * arm_swing, 1.08 - crouch * 0.4 + abs(swing) * arm_swing * 0.25])
     pose["two_hand"] = np.array([0.0])
     pose["elbow_r"] = np.array([0.5, -0.8, -0.3])
     pose["elbow_l"] = np.array([-0.5, -0.8, -0.3])
@@ -1022,6 +1112,15 @@ def turned(pose, angle):
     return pose
 
 
+def gait_heading(gait, phase, travel, turn):
+    """
+    A gait's stride heading along travel with the hips turned by turn, both degrees clockwise from straight ahead. The
+    stride runs a little across the turned hips, so that once turned it heads exactly along the travel.
+    """
+    a = math.radians(travel - turn)
+    return turned(gait_pose(STANDING, phase, (math.sin(a), math.cos(a)), gait), turn)
+
+
 def author_locomotion(solver):
     """
     Locomotion in three gaits, a walk, a jog and a run, each in six directions. Within a gait every direction shares the
@@ -1035,22 +1134,12 @@ def author_locomotion(solver):
     game picks one side rather than blend hips turned opposite ways.
     """
     for gait in GAITS:
-        name, speed, cycle, stance, lift, width, crouch, bounce, lean, arm, hip, side_turn = gait
-
-        def forward(phase, direction=(0.0, 1.0), lean=lean, low=0.0):
-            return gait_pose(STANDING, phase, direction, speed, cycle, stance, lift, width, crouch, bounce, lean, 0.0, arm, hip, low)
-
-        def heading(phase, travel, turn):
-            # The stride runs a little across the turned hips, so that once turned it heads exactly along the travel:
-            # travel and turn are degrees clockwise from straight ahead.
-            a = math.radians(travel - turn)
-            return turned(forward(phase, (math.sin(a), math.cos(a))), turn)
-
-        author_function(solver, name, cycle, forward)
-        author_function(solver, name + "Right", cycle, lambda phase: heading(phase, 90.0, side_turn))
-        author_function(solver, name + "Left", cycle, lambda phase: heading(phase, -90.0, -side_turn))
-        author_function(solver, name + "BackRight", cycle, lambda phase: heading(phase, RETREAT_TRAVEL, RETREAT_TURN))
-        author_function(solver, name + "BackLeft", cycle, lambda phase: heading(phase, -RETREAT_TRAVEL, -RETREAT_TURN))
+        name, cycle = gait["name"], gait["cycle"]
+        author_function(solver, name, cycle, lambda phase, g=gait: gait_heading(g, phase, 0.0, 0.0))
+        author_function(solver, name + "Right", cycle, lambda phase, g=gait: gait_heading(g, phase, 90.0, g["side_turn"]))
+        author_function(solver, name + "Left", cycle, lambda phase, g=gait: gait_heading(g, phase, -90.0, -g["side_turn"]))
+        author_function(solver, name + "BackRight", cycle, lambda phase, g=gait: gait_heading(g, phase, RETREAT_TRAVEL, RETREAT_TURN))
+        author_function(solver, name + "BackLeft", cycle, lambda phase, g=gait: gait_heading(g, phase, -RETREAT_TRAVEL, -RETREAT_TURN))
 
     def breathing_idle(phase):
         pose = dict(STANDING)

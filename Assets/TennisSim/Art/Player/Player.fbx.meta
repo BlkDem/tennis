@@ -326,7 +326,7 @@ ModelImporter:
       takeName: Rig|Jog
       internalID: -5423783715202282990
       firstFrame: 0
-      lastFrame: 42
+      lastFrame: 40
       wrapMode: 0
       orientationOffsetY: 0
       level: 0
@@ -355,7 +355,7 @@ ModelImporter:
       takeName: Rig|JogBackLeft
       internalID: -7336792927590556524
       firstFrame: 0
-      lastFrame: 42
+      lastFrame: 40
       wrapMode: 0
       orientationOffsetY: 0
       level: 0
@@ -384,7 +384,7 @@ ModelImporter:
       takeName: Rig|JogBackRight
       internalID: -3071344809802785023
       firstFrame: 0
-      lastFrame: 42
+      lastFrame: 40
       wrapMode: 0
       orientationOffsetY: 0
       level: 0
@@ -413,7 +413,7 @@ ModelImporter:
       takeName: Rig|JogLeft
       internalID: -3256482597666874496
       firstFrame: 0
-      lastFrame: 42
+      lastFrame: 40
       wrapMode: 0
       orientationOffsetY: 0
       level: 0
@@ -442,7 +442,7 @@ ModelImporter:
       takeName: Rig|JogRight
       internalID: -8938631477247234964
       firstFrame: 0
-      lastFrame: 42
+      lastFrame: 40
       wrapMode: 0
       orientationOffsetY: 0
       level: 0
@@ -558,7 +558,7 @@ ModelImporter:
       takeName: Rig|Run
       internalID: -5181486892397411127
       firstFrame: 0
-      lastFrame: 36
+      lastFrame: 34
       wrapMode: 0
       orientationOffsetY: 0
       level: 0
@@ -587,7 +587,7 @@ ModelImporter:
       takeName: Rig|RunBackLeft
       internalID: -8426978232716654874
       firstFrame: 0
-      lastFrame: 36
+      lastFrame: 34
       wrapMode: 0
       orientationOffsetY: 0
       level: 0
@@ -616,7 +616,7 @@ ModelImporter:
       takeName: Rig|RunBackRight
       internalID: 6310329454633142132
       firstFrame: 0
-      lastFrame: 36
+      lastFrame: 34
       wrapMode: 0
       orientationOffsetY: 0
       level: 0
@@ -645,7 +645,7 @@ ModelImporter:
       takeName: Rig|RunLeft
       internalID: -505889392535528716
       firstFrame: 0
-      lastFrame: 36
+      lastFrame: 34
       wrapMode: 0
       orientationOffsetY: 0
       level: 0
@@ -674,7 +674,7 @@ ModelImporter:
       takeName: Rig|RunRight
       internalID: -8350938764259562637
       firstFrame: 0
-      lastFrame: 36
+      lastFrame: 34
       wrapMode: 0
       orientationOffsetY: 0
       level: 0
@@ -935,7 +935,7 @@ ModelImporter:
       takeName: Rig|Walk
       internalID: -7264356326966739861
       firstFrame: 0
-      lastFrame: 58
+      lastFrame: 47
       wrapMode: 0
       orientationOffsetY: 0
       level: 0
@@ -964,7 +964,7 @@ ModelImporter:
       takeName: Rig|WalkBackLeft
       internalID: -7558793014539405517
       firstFrame: 0
-      lastFrame: 58
+      lastFrame: 47
       wrapMode: 0
       orientationOffsetY: 0
       level: 0
@@ -993,7 +993,7 @@ ModelImporter:
       takeName: Rig|WalkBackRight
       internalID: -2868027829294259984
       firstFrame: 0
-      lastFrame: 58
+      lastFrame: 47
       wrapMode: 0
       orientationOffsetY: 0
       level: 0
@@ -1022,7 +1022,7 @@ ModelImporter:
       takeName: Rig|WalkLeft
       internalID: 8287095902858099078
       firstFrame: 0
-      lastFrame: 58
+      lastFrame: 47
       wrapMode: 0
       orientationOffsetY: 0
       level: 0
@@ -1051,7 +1051,7 @@ ModelImporter:
       takeName: Rig|WalkRight
       internalID: -8139550028822979846
       firstFrame: 0
-      lastFrame: 58
+      lastFrame: 47
       wrapMode: 0
       orientationOffsetY: 0
       level: 0
