@@ -370,7 +370,7 @@ namespace TennisSim
             Selectable quit = CanQuit ? MenuButton(panel, "ВЫХОД", new Vector2(0f, -610f), () => game.Quit()) : null;
             Chain(opponentRow, lengthRow, timeRow, playButton, settingsButton, quit);
 
-            Label(menu.transform, "Стик / WASD — бег     A / Space — удар: держите, пока копится сила, и ведите прицел WASD; отпустите — удар     B, X, Y, LB, RB / U, H, I, O, L — другие удары     Start / Esc — пауза",
+            Label(menu.transform, "Стик / WASD — бег     A / Space — удар: держите, пока копится сила, и ведите прицел стиком / WASD; отпустите — удар     B, X, Y, LB, RB / U, H, I, O, L — другие удары     Start / Esc — пауза",
                 Anchored(new Vector2(0.5f, 0.08f), Vector2.zero), new Vector2(1880f, 40f), 22, TextColour, TextAnchor.MiddleCenter)
                 .gameObject.AddComponent<Shadow>().effectColor = new Color(0f, 0f, 0f, 0.9f);
         }

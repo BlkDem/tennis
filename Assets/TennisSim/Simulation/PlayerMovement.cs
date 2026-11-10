@@ -19,6 +19,10 @@ namespace TennisSim.Simulation
         [Tooltip("Used when the stick points against the current movement, so changes of direction feel instant.")]
         public float TurnAcceleration = 55f;
 
+        [Header("Help for a human player")]
+        [Tooltip("With the stick let go, a player this close to where the ball should be met runs there by themselves, metres.")]
+        public float ApproachRadius = 3f;
+
         [Header("Court bounds")]
         public float MaxX = 9f;
         public float MaxBehindBaseline = 6f;

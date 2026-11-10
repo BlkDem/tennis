@@ -33,8 +33,17 @@ namespace TennisSim.Simulation
         float lastNow;
         bool hasPreviousDistance;
         ShotButton? bufferedPress;
+        bool releasedEarly;
+        float heldBeforeRelease;
 
         public SwingPhase Phase { get; private set; }
+        /// <summary>
+        /// Letting go well before the ball arrives keeps the shot ready instead of swinging at the air: the racket goes
+        /// through on its own, a little late, with the power charged so far. For human players.
+        /// </summary>
+        public bool ForgiveEarlyRelease { get; set; }
+        /// <summary>The button was let go early and the shot waits for the ball by itself.</summary>
+        public bool WaitingForBall => Phase == SwingPhase.Preparing && releasedEarly;
         /// <summary>When the current or last swing started; the racket is at its sweet spot <see cref="ShotTuning.SwingLatency"/> later.</summary>
         public float SwingStart => swingStart;
         public ShotButton ActiveButton { get; private set; }
@@ -50,7 +59,7 @@ namespace TennisSim.Simulation
             get
             {
                 float full = Mathf.Max(tuning.FullPreparationTime, 1e-3f);
-                if (Phase == SwingPhase.Preparing) return Mathf.Clamp01((lastNow - preparationStart) / full);
+                if (Phase == SwingPhase.Preparing) return Mathf.Clamp01((releasedEarly ? heldBeforeRelease : lastNow - preparationStart) / full);
                 if (Phase == SwingPhase.Swinging) return Mathf.Clamp01(preparationHeld / full);
                 return 0f;
             }
@@ -72,6 +81,7 @@ namespace TennisSim.Simulation
             plannedRevision = -1;
             bufferedPress = null;
             hasPreviousDistance = false;
+            releasedEarly = false;
         }
 
         /// <summary>Returns a shot when the racket met the ball this tick.</summary>
@@ -118,14 +128,29 @@ namespace TennisSim.Simulation
             if (intent.Released.HasValue)
             {
                 if (bufferedPress == intent.Released) bufferedPress = null;
-                if (Phase == SwingPhase.Preparing && intent.Released == ActiveButton)
-                    StartSwing(p.Now);
+                if (Phase == SwingPhase.Preparing && intent.Released == ActiveButton && !releasedEarly)
+                {
+                    if (ForgiveEarlyRelease && TooEarlyToSwing(p.Now))
+                    {
+                        releasedEarly = true;
+                        heldBeforeRelease = p.Now - preparationStart;
+                    }
+                    else StartSwing(p.Now);
+                }
             }
         }
 
+        /// <summary>
+        /// Let go further ahead of the ball than an auto-swing comes late, the swing would hit nothing; or no ball is
+        /// coming yet. Closer than that, the release is the swing and its timing is graded.
+        /// </summary>
+        bool TooEarlyToSwing(float now) => !Plan.Valid || Plan.Time - now > tuning.SwingLatency + tuning.AutoSwingLateness;
+
         void BeginPreparing(ShotButton button, in PlayerPerception p, float maxSpeed)
         {
-            if (Phase != SwingPhase.Preparing) preparationStart = p.Now;
+            // Pressed again after an early release: the hold, and its charge, starts over.
+            if (Phase != SwingPhase.Preparing || releasedEarly) preparationStart = p.Now;
+            releasedEarly = false;
             Phase = SwingPhase.Preparing;
             ActiveButton = button;
             Replan(p, maxSpeed);
@@ -153,7 +178,8 @@ namespace TennisSim.Simulation
 
         void StartSwing(float now)
         {
-            preparationHeld = now - preparationStart;
+            preparationHeld = releasedEarly ? heldBeforeRelease : now - preparationStart;
+            releasedEarly = false;
             swingStart = now;
             hasPreviousDistance = false;
             Phase = SwingPhase.Swinging;
@@ -254,6 +280,7 @@ namespace TennisSim.Simulation
         void EnterRecovery(float now)
         {
             Phase = SwingPhase.Recovering;
+            releasedEarly = false;
             phaseEnd = now + tuning.RecoveryTime;
             Plan = default;
         }

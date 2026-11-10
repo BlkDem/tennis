@@ -20,11 +20,25 @@ FPS = 60
 
 # Must match PlayerMovementTuning and ShotTuning in the game.
 RUN_SPEED = 6.2
-SPRINT_SPEED = 7.8
-WALK_SPEED = 2.0
-BACKPEDAL_SPEED = 4.0
-STRAFE_SPEED = 5.0
+WALK_SPEED = 1.4
+JOG_SPEED = 3.5
 SWING_LATENCY = 0.14
+
+# The gaits, slowest first; ProjectBuilder blends them by these speeds. Per gait: name, speed (m/s), cycle (s), share of
+# the cycle a foot is on the ground, foot lift, half the gap between the feet, crouch, bounce (m), lean, arm swing,
+# hip turn (degrees, metres) and how far the hips turn into a sideways stride. Must match PlayerAnimationController.Gaits.
+GAITS = (
+    ("Walk", WALK_SPEED, 0.96, 0.60, 0.08, 0.12, 0.03, 0.012, 3.0, 0.10, 5.0, 55.0),
+    ("Jog", JOG_SPEED, 0.70, 0.36, 0.15, 0.13, 0.05, 0.022, 9.0, 0.15, 9.0, 65.0),
+    ("Run", RUN_SPEED, 0.60, 0.28, 0.22, 0.13, 0.07, 0.03, 16.0, 0.2, 12.0, 70.0),
+)
+# The retreats travel this close to straight back, degrees clockwise from straight ahead, with the hips turned this far;
+# must match PlayerAnimationController.RetreatSideAngle.
+RETREAT_TRAVEL = 175.0
+RETREAT_TURN = 140.0
+# However far the hips turn, the chest and head turn back towards the court by at most this much, degrees: a spine
+# twists only so far, and the head looks over the shoulder.
+MAX_COUNTER_TURN = 85.0
 
 MAX_BONES_PER_VERTEX = 4
 # Nothing on the torso or legs lies further out than this, while the arm in the rest pose does.
@@ -315,14 +329,17 @@ class Solver:
             hip = self.child_head(prefix + "UpperLeg", world["Hips"])
             upper = self.length[prefix + "UpperLeg"]
             lower = self.length[prefix + "LowerLeg"]
-            # Knees bend forward and a little outward, like the feet.
-            pole = Vector((outward * 0.35, -1.0, 0.0))
+            pitch, yaw = p[rot_key]
+            # Knees bend forward and, by the pose's knee_out, outward: over the toes in a wide stance, straight ahead in a
+            # stride. A foot turned further takes its knee with it: in a serve's sideways stance the knees bend over the
+            # toes, not towards the net.
+            turn = Matrix.Rotation(math.radians(-(yaw - DEFAULT_FOOT_YAW[prefix]) * p["knee_follow"][0]), 3, "Z")
+            pole = turn @ Vector((outward * p["knee_out"][0], -1.0, 0.0))
             knee = self.two_bone(hip, ankle, upper, lower, pole)
 
             set_bone(prefix + "UpperLeg", self.aimed(prefix + "UpperLeg", world["Hips"], knee - hip))
             set_bone(prefix + "LowerLeg", self.aimed(prefix + "LowerLeg", world[prefix + "UpperLeg"], ankle - knee))
 
-            pitch, yaw = p[rot_key]
             foot_rotation = Matrix.Rotation(math.radians(-yaw), 3, "Z") @ Matrix.Rotation(math.radians(pitch), 3, "X")
             set_bone(prefix + "Foot", foot_rotation @ self.rest_rot[prefix + "Foot"], ankle)
             set_bone(prefix + "Toes", foot_rotation @ self.rest_rot[prefix + "Toes"])
@@ -407,6 +424,10 @@ class Solver:
 # ---------------------------------------------------------------- Pose library
 
 
+# How far each foot normally turns out, degrees: the yaw of make_pose's feet. Knees follow any turn beyond it.
+DEFAULT_FOOT_YAW = {"L_": -12.0, "R_": 12.0}
+
+
 def make_pose(**overrides):
     pose = {
         "pelvis_pos": (0.0, 0.0, -0.10),
@@ -414,10 +435,15 @@ def make_pose(**overrides):
         "spine_rot": (5.0, 0.0, 0.0),
         "chest_rot": (6.0, 0.0, 0.0),
         "head_rot": (-12.0, 0.0, 0.0),
-        "foot_l": (-0.27, 0.0, 0.225),
-        "foot_r": (0.27, 0.0, 0.225),
+        "foot_l": (-0.23, 0.0, 0.225),
+        "foot_r": (0.23, 0.0, 0.225),
         "foot_l_rot": (0.0, -12.0),
         "foot_r_rot": (0.0, 12.0),
+        # How far the knees bend out sideways for every unit they bend forward.
+        "knee_out": (0.4,),
+        # How much of a foot's turn beyond the usual its knee follows: all of it in a stride, less in a stance where the
+        # knees drive towards the net while the back foot points along the baseline.
+        "knee_follow": (1.0,),
         "grip": (0.13, 0.38, 1.0),
         "racket": (-0.28, 0.72, 0.62),
         "face": (0.9, 0.35, 0.1),
@@ -693,42 +719,89 @@ SMASH_FINISH = make_pose(
     elbow_r=(0.6, -0.1, -0.7),
 )
 
+# The serve is played side-on, like a real right-hander's platform stance: the front (left) foot just behind the
+# baseline, pointing at the right net post; the back foot behind it, nearly along the baseline; hips and shoulders
+# turned towards the right sideline, the head turned back to the box.
+SERVE_FOOT_L = (-0.1, 0.2, 0.225)
+SERVE_FOOT_R = (0.22, -0.22, 0.225)
+SERVE_FOOT_L_ROT = (0.0, 35.0)
+SERVE_FOOT_R_ROT = (0.0, 60.0)
+# The knees bend towards the court, not along the turned feet: seen from behind, knees bent along the feet read as the
+# legs folding sideways.
+SERVE_KNEE_FOLLOW = (0.3,)
+
 SERVE_START = make_pose(
-    pelvis_pos=(0.0, 0.0, -0.05),
-    foot_l=(-0.2, 0.15, 0.225),
-    foot_r=(0.25, -0.15, 0.225),
-    grip=(0.2, 0.36, 1.05),
-    racket=(0.0, 0.8, 0.55),
-    hand_l=(0.0, 0.42, 1.12),
+    pelvis_pos=(0.04, 0.0, -0.04),
+    pelvis_rot=(2.0, 45.0, 0.0),
+    spine_rot=(2.0, 10.0, 0.0),
+    chest_rot=(3.0, 8.0, 0.0),
+    head_rot=(-6.0, -48.0, 0.0),
+    foot_l=SERVE_FOOT_L,
+    foot_r=SERVE_FOOT_R,
+    foot_l_rot=SERVE_FOOT_L_ROT,
+    foot_r_rot=SERVE_FOOT_R_ROT,
+    knee_follow=SERVE_KNEE_FOLLOW,
+    grip=(0.08, 0.28, 1.08),
+    racket=(-0.15, 0.8, 0.55),
+    face=(0.9, 0.2, 0.1),
+    hand_l=(-0.06, 0.4, 1.12),
     two_hand=(0.0,),
+    elbow_r=(0.6, -0.6, -0.5),
+    elbow_l=(-0.6, 0.2, -0.7),
 )
+# The trophy position: the tossing arm straight up, the racket up behind the head, the knees bent towards the court
+# and the hips pushed forward over the front foot, the shoulders turned past the hips and arched back.
 SERVE_TOSS = make_pose(
-    pelvis_pos=(0.0, -0.05, -0.16),
-    pelvis_rot=(-2.0, 15.0, 0.0),
-    spine_rot=(-8.0, 15.0, 0.0),
-    chest_rot=(-10.0, 18.0, 0.0),
-    head_rot=(-30.0, 0.0, 0.0),
-    foot_l=(-0.2, 0.15, 0.225),
-    foot_r=(0.25, -0.15, 0.225),
-    grip=(0.4, -0.2, 1.7),
-    racket=(0.05, -0.75, 0.05),
+    pelvis_pos=(0.0, 0.16, -0.14),
+    pelvis_rot=(-4.0, 45.0, 0.0),
+    spine_rot=(-10.0, 14.0, 0.0),
+    chest_rot=(-12.0, 22.0, 0.0),
+    head_rot=(-30.0, -50.0, 0.0),
+    foot_l=SERVE_FOOT_L,
+    foot_r=SERVE_FOOT_R,
+    foot_l_rot=SERVE_FOOT_L_ROT,
+    foot_r_rot=(-15.0, 60.0),
+    knee_follow=SERVE_KNEE_FOLLOW,
+    grip=(0.3, -0.3, 1.62),
+    racket=(0.1, -0.45, 0.88),
     face=(0.9, 0.0, 0.42),
-    hand_l=(-0.05, 0.3, 2.0),
+    hand_l=(0.1, 0.4, 2.05),
     two_hand=(0.0,),
-    elbow_r=(0.9, -0.1, 0.1),
+    elbow_r=(0.4, -0.9, 0.1),
     elbow_l=(-0.7, 0.3, -0.5),
 )
-# The racket head meets the ball at ShotTuning.ServeContact: (0.28, 0.36, 2.45) from the feet.
+# The legs drive up as the racket drops behind the back: onto the toes, the hips starting to turn back.
+SERVE_DROP = make_pose(
+    pelvis_pos=(0.0, 0.18, -0.06),
+    pelvis_rot=(-2.0, 30.0, 0.0),
+    spine_rot=(-9.0, 8.0, 0.0),
+    chest_rot=(-13.0, 4.0, 0.0),
+    head_rot=(-32.0, -28.0, 0.0),
+    foot_l=(-0.1, 0.2, 0.27),
+    foot_r=(0.2, -0.2, 0.3),
+    foot_l_rot=(-18.0, 35.0),
+    foot_r_rot=(-30.0, 58.0),
+    knee_follow=SERVE_KNEE_FOLLOW,
+    grip=(0.33, -0.08, 1.6),
+    racket=(0.05, -0.35, -0.94),
+    face=(0.95, 0.0, 0.1),
+    hand_l=(-0.12, 0.34, 1.6),
+    two_hand=(0.0,),
+    elbow_r=(0.9, 0.1, 0.4),
+    elbow_l=(-0.7, 0.3, -0.5),
+)
+# The racket head meets the ball at ShotTuning.ServeContact: (0.28, 0.36, 2.45) from the feet. Off the ground, legs
+# straight and toes pointing down, the back foot drawn up to the front one; the body faces the net again.
 SERVE_CONTACT = make_pose(
     pelvis_pos=(0.0, 0.1, 0.05),
     pelvis_rot=(5.0, -8.0, 0.0),
     spine_rot=(6.0, -6.0, 0.0),
     chest_rot=(10.0, -10.0, 0.0),
     head_rot=(-30.0, 0.0, 0.0),
-    foot_l=(-0.2, 0.2, 0.3),
-    foot_r=(0.25, -0.05, 0.32),
-    foot_l_rot=(-25.0, -12.0),
-    foot_r_rot=(-30.0, 12.0),
+    foot_l=(-0.08, 0.26, 0.31),
+    foot_r=(0.12, -0.04, 0.36),
+    foot_l_rot=(-35.0, 25.0),
+    foot_r_rot=(-45.0, 45.0),
     grip=(0.27, 0.25, 1.99),
     racket=(0.02, 0.25, 0.97),
     face=(0.0, 0.97, -0.25),
@@ -736,34 +809,35 @@ SERVE_CONTACT = make_pose(
     two_hand=(0.0,),
     elbow_r=(0.9, -0.2, -0.3),
 )
-SERVE_DROP = make_pose(
-    pelvis_pos=(0.0, 0.02, -0.08),
-    pelvis_rot=(-2.0, 8.0, 0.0),
-    spine_rot=(-10.0, 8.0, 0.0),
-    chest_rot=(-14.0, 6.0, 0.0),
-    head_rot=(-32.0, 0.0, 0.0),
-    foot_l=(-0.2, 0.15, 0.225),
-    foot_r=(0.25, -0.1, 0.24),
-    foot_r_rot=(-15.0, 12.0),
-    grip=(0.36, -0.05, 1.62),
-    racket=(0.05, -0.35, -0.94),
-    face=(0.95, 0.0, 0.1),
-    hand_l=(-0.15, 0.32, 1.6),
-    two_hand=(0.0,),
-    elbow_r=(0.9, 0.1, 0.4),
-    elbow_l=(-0.7, 0.3, -0.5),
-)
-SERVE_FINISH = make_pose(
-    pelvis_pos=(0.0, 0.25, -0.1),
-    spine_rot=(16.0, -20.0, 0.0),
-    chest_rot=(18.0, -24.0, 0.0),
-    foot_l=(-0.25, 0.42, 0.225),
-    foot_r=(0.3, 0.0, 0.26),
-    foot_r_rot=(-20.0, 12.0),
+# Landing on the front foot inside the court, the back leg swung up behind for balance, the racket across the body.
+SERVE_LAND = make_pose(
+    pelvis_pos=(-0.05, 0.3, -0.1),
+    pelvis_rot=(10.0, -18.0, 0.0),
+    spine_rot=(12.0, -16.0, 0.0),
+    chest_rot=(14.0, -20.0, 0.0),
+    head_rot=(-10.0, 10.0, 0.0),
+    foot_l=(-0.12, 0.38, 0.225),
+    foot_r=(0.2, -0.15, 0.5),
+    foot_l_rot=(0.0, 5.0),
+    foot_r_rot=(-60.0, 30.0),
     grip=(-0.25, 0.5, 0.95),
     racket=(-0.48, 0.2, -0.85),
     face=(-0.3, 0.9, 0.2),
     hand_l=(-0.42, 0.25, 1.05),
+    two_hand=(0.0,),
+)
+# The back foot comes through and down beside the front one, ready to move.
+SERVE_FINISH = make_pose(
+    pelvis_pos=(0.0, 0.33, -0.1),
+    pelvis_rot=(6.0, -6.0, 0.0),
+    spine_rot=(8.0, -8.0, 0.0),
+    chest_rot=(8.0, -10.0, 0.0),
+    foot_l=(-0.2, 0.38, 0.225),
+    foot_r=(0.25, 0.4, 0.225),
+    grip=(0.0, 0.62, 0.98),
+    racket=(-0.3, 0.75, 0.2),
+    face=(0.2, 0.2, 0.95),
+    hand_l=(-0.3, 0.4, 1.05),
     two_hand=(0.0,),
 )
 
@@ -895,10 +969,15 @@ def gait_pose(base, phase, direction, speed, cycle, stance_fraction, lift, width
         pitch = 0.0
         travel_phase = foot_phase % 1.0
         if travel_phase >= stance_fraction and abs(direction[1]) > 0.5:
-            # The heel leads the foot up from the ground and the toes reach for it again.
+            # The heel leads the foot up from the ground and the toes reach for it again: a little in a walk, a lot in a run.
             swing = (travel_phase - stance_fraction) / (1.0 - stance_fraction)
-            pitch = -45.0 * math.sin(math.pi * swing) * direction[1]
-        pose[key + "_rot"] = np.array([pitch, side * 12.0 * (1.0 if abs(direction[0]) < 0.5 else 0.5)])
+            reach = 20.0 + 25.0 * min(1.0, max(0.0, (speed - WALK_SPEED) / (RUN_SPEED - WALK_SPEED)))
+            pitch = -reach * math.sin(math.pi * swing) * direction[1]
+        # Feet point almost straight along a stride; a sideways shuffle keeps them a little more open.
+        pose[key + "_rot"] = np.array([pitch, side * (5.0 if abs(direction[0]) < 0.5 else 8.0)])
+
+    # A stride swings the knees straight ahead; a shuffle with the feet apart bends them a little over the toes.
+    pose["knee_out"] = np.array([0.1 if abs(direction[1]) > 0.5 else 0.3])
 
     two_steps = math.cos(4.0 * math.pi * phase)
     swing = math.sin(2.0 * math.pi * phase)
@@ -919,17 +998,59 @@ def gait_pose(base, phase, direction, speed, cycle, stance_fraction, lift, width
     return pose
 
 
-def author_locomotion(solver):
-    def clip(name, direction, speed, cycle, stance, lift, width, crouch, bounce, lean, roll, arm, hip, low=0.0):
-        author_function(solver, name, cycle, lambda phase: gait_pose(STANDING, phase, direction, speed, cycle, stance, lift, width, crouch, bounce, lean, roll, arm, hip, low))
+def turned(pose, angle):
+    """
+    The same stride heading off to the side: the feet, their path and the hips turn by angle (positive to the right),
+    and the spine, chest and head turn most of the way back, up to MAX_COUNTER_TURN, so the player keeps the court in view.
+    """
+    counter = math.copysign(min(abs(angle) * 0.95, MAX_COUNTER_TURN), angle)
+    pose = dict(pose)
+    a = math.radians(angle)
+    c, s = math.cos(a), math.sin(a)
 
-    clip("Walk", (0.0, 1.0), WALK_SPEED, 1.02, 0.60, 0.09, 0.15, 0.04, 0.012, 4.0, 0.0, 0.10, 6.0)
-    clip("Run", (0.0, 1.0), RUN_SPEED, 0.62, 0.34, 0.22, 0.14, 0.09, 0.03, 16.0, 0.0, 0.2, 12.0)
-    clip("Sprint", (0.0, 1.0), SPRINT_SPEED, 0.56, 0.30, 0.28, 0.13, 0.11, 0.035, 22.0, 0.0, 0.26, 14.0)
-    clip("Backpedal", (0.0, -1.0), BACKPEDAL_SPEED, 0.50, 0.40, 0.12, 0.18, 0.1, 0.02, -8.0, 0.0, 0.08, 5.0, 0.04)
-    # Sideways shuffles keep the feet apart: a short stance at a quick cadence, so they do not cross.
-    clip("StrafeRight", (1.0, 0.0), STRAFE_SPEED, 0.36, 0.30, 0.12, 0.30, 0.14, 0.02, 2.0, 9.0, 0.05, 2.0, 0.05)
-    clip("StrafeLeft", (-1.0, 0.0), STRAFE_SPEED, 0.36, 0.30, 0.12, 0.30, 0.14, 0.02, 2.0, 9.0, 0.05, 2.0, 0.05)
+    def rotate(v):
+        x, y = v[0], v[1]
+        return np.array([x * c + y * s, -x * s + y * c] + list(v[2:]))
+
+    for key in ("foot_l", "foot_r", "pelvis_pos"):
+        pose[key] = rotate(pose[key])
+    for key in ("foot_l_rot", "foot_r_rot"):
+        pose[key] = pose[key] + np.array([0.0, angle])
+    pose["pelvis_rot"] = pose["pelvis_rot"] + np.array([0.0, angle, 0.0])
+    for key, share in (("spine_rot", 0.45), ("chest_rot", 0.3), ("head_rot", 0.2)):
+        pose[key] = pose[key] - np.array([0.0, counter * share / 0.95, 0.0])
+    return pose
+
+
+def author_locomotion(solver):
+    """
+    Locomotion in three gaits, a walk, a jog and a run, each in six directions. Within a gait every direction shares the
+    speed, the cycle and the share of it a foot is on the ground, so the game can blend directions without one clip's
+    planted foot cancelling another's swinging one; the game blends the gaits by speed.
+
+    Every direction is a forward stride with the hips turned towards the travel, the chest and head turning back towards
+    the court: to the side the hips turn most of the way, in a retreat further still. Neighbouring clips then swing the
+    legs the same way and blend cleanly, where a backpedal next to a turned stride would swing them against each other
+    and cancel the step. A retreat turns one way or the other, so its two clips sit close to straight back and the
+    game picks one side rather than blend hips turned opposite ways.
+    """
+    for gait in GAITS:
+        name, speed, cycle, stance, lift, width, crouch, bounce, lean, arm, hip, side_turn = gait
+
+        def forward(phase, direction=(0.0, 1.0), lean=lean, low=0.0):
+            return gait_pose(STANDING, phase, direction, speed, cycle, stance, lift, width, crouch, bounce, lean, 0.0, arm, hip, low)
+
+        def heading(phase, travel, turn):
+            # The stride runs a little across the turned hips, so that once turned it heads exactly along the travel:
+            # travel and turn are degrees clockwise from straight ahead.
+            a = math.radians(travel - turn)
+            return turned(forward(phase, (math.sin(a), math.cos(a))), turn)
+
+        author_function(solver, name, cycle, forward)
+        author_function(solver, name + "Right", cycle, lambda phase: heading(phase, 90.0, side_turn))
+        author_function(solver, name + "Left", cycle, lambda phase: heading(phase, -90.0, -side_turn))
+        author_function(solver, name + "BackRight", cycle, lambda phase: heading(phase, RETREAT_TRAVEL, RETREAT_TURN))
+        author_function(solver, name + "BackLeft", cycle, lambda phase: heading(phase, -RETREAT_TRAVEL, -RETREAT_TURN))
 
     def breathing_idle(phase):
         pose = dict(STANDING)
@@ -1027,9 +1148,10 @@ def author_shots(solver):
         (0.0, SERVE_TOSS),
         (contact * 0.5, SERVE_DROP),
         (contact, SERVE_CONTACT),
-        (contact + 0.25, SERVE_FINISH),
-        (contact + 0.5, SERVE_FINISH),
-        (contact + 0.9, READY),
+        (contact + 0.2, SERVE_LAND),
+        (contact + 0.42, SERVE_FINISH),
+        (contact + 0.6, SERVE_FINISH),
+        (contact + 0.95, READY),
     ])
     author_keys(solver, "Recovery", [
         (0.0, FOREHAND_FINISH),

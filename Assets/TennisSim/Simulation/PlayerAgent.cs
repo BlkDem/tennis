@@ -13,6 +13,7 @@ namespace TennisSim.Simulation
         const float VolleyRecoveryDistance = 3.2f;
         /// <summary>Spare time left when auto-positioning takes over, so the player arrives and can still aim.</summary>
         const float ContactCommitMargin = 0.25f;
+        const float ApproachReplanInterval = 0.1f;
 
         readonly PlayerMovementTuning movementTuning;
         readonly ShotTuning shotTuning;
@@ -21,6 +22,9 @@ namespace TennisSim.Simulation
         bool committedToContact;
         int committedRevision;
         Vector2 aim;
+        ContactPlan approach;
+        int approachRevision = -1;
+        float nextApproachPlan;
 
         public PlayerSlot Slot { get; }
         public PlayerMovement Movement { get; }
@@ -32,6 +36,20 @@ namespace TennisSim.Simulation
         /// neutral, does the player run to the contact point by themselves. When off, control is fully manual.
         /// </summary>
         public bool AutoPositioning { get; set; } = true;
+
+        /// <summary>
+        /// A human player gets the footwork a real player does without thinking: with the stick let go they walk up to
+        /// a ball coming near them, a held shot sprints when the ball is far, and a shot button let go too early waits
+        /// for the ball rather than swinging at the air. Bots play without it.
+        /// </summary>
+        public bool Assisted
+        {
+            get => Shot.ForgiveEarlyRelease;
+            set => Shot.ForgiveEarlyRelease = value;
+        }
+
+        /// <summary>Where the player is walking up to by themselves, before any button is pressed; for the view and checks.</summary>
+        public ContactPlan Approach => approach;
 
         public Vector3 Position => Movement.Position;
         public ShotTuning ShotTuning => shotTuning;
@@ -64,6 +82,8 @@ namespace TennisSim.Simulation
             committedToContact = false;
             aim = Vector2.zero;
             AimingWithCursor = false;
+            approach = default;
+            approachRevision = -1;
         }
 
         public ShotResult? Tick(in PlayerPerception p, float dt)
@@ -91,6 +111,7 @@ namespace TennisSim.Simulation
             bool stickActive = movement.Move.sqrMagnitude > StickActive * StickActive;
             UpdateContactCommitment(p, sprintSpeed);
             bool steering = stickActive && (!AutoPositioning || !committedToContact);
+            UpdateApproach(p, stickActive);
 
             ShotResult? shot = Shot.Tick(p, intent, Movement.Velocity, sprintSpeed, aim, steering, cursor ? AimTarget : (Vector2?)null);
 
@@ -134,10 +155,12 @@ namespace TennisSim.Simulation
             return cursor;
         }
 
+        /// <summary>Either stick moves the cursor; the dedicated aim stick wins when both are pushed.</summary>
         Vector2 MoveCursor(Vector2 target, in PlayerIntent intent, float dt)
         {
-            if (intent.Move.sqrMagnitude <= StickActive * StickActive) return target;
-            return target + Vector2.ClampMagnitude(intent.Move, 1f) * (shotTuning.AimCursorSpeed * dt);
+            Vector2 push = intent.Aim.sqrMagnitude > StickActive * StickActive ? intent.Aim : intent.Move;
+            if (push.sqrMagnitude <= StickActive * StickActive) return target;
+            return target + Vector2.ClampMagnitude(push, 1f) * (shotTuning.AimCursorSpeed * dt);
         }
 
         /// <summary>The shot a button usually makes, for where its cursor may go; the contact itself decides the final kind.</summary>
@@ -183,6 +206,30 @@ namespace TennisSim.Simulation
             committedToContact = Shot.Phase == SwingPhase.Swinging || travelTime + ContactCommitMargin >= Shot.Plan.Time - p.Now;
         }
 
+        /// <summary>
+        /// Before any button is pressed, an assisted player with the stick let go walks up to a ball that will come
+        /// near: to the same contact point a held shot would run to. A ball further away is the player's to chase.
+        /// </summary>
+        void UpdateApproach(in PlayerPerception p, bool stickActive)
+        {
+            bool helping = Assisted && AutoPositioning && !stickActive && Shot.Phase == SwingPhase.Idle
+                           && p.CanHit && !p.AwaitingServe && p.Trajectory != null;
+            if (!helping)
+            {
+                approach = default;
+                approachRevision = -1;
+                return;
+            }
+            if (approachRevision == p.BallRevision && p.Now < nextApproachPlan) return;
+
+            approachRevision = p.BallRevision;
+            nextApproachPlan = p.Now + ApproachReplanInterval;
+            ContactPlan plan = ContactPlanner.Find(p.Trajectory, Position, Slot, null, ShotButton.Auto, p.Now, movementTuning.RunSpeed,
+                movementTuning, shotTuning, p.MustLetBounce);
+            bool near = plan.Valid && plan.Reachable && Vector3.Distance(Position, plan.Stance) <= movementTuning.ApproachRadius;
+            approach = near ? plan : default;
+        }
+
         void UpdateAim(in PlayerIntent intent)
         {
             // A dedicated aim stick wins; otherwise the movement stick doubles as aim, as on a keyboard.
@@ -195,7 +242,11 @@ namespace TennisSim.Simulation
             bool committed = preparing || Shot.Phase == SwingPhase.Swinging;
 
             if (AutoPositioning && committed && Shot.Plan.Valid && !steering)
-                return Movement.ArriveVelocity(Shot.Plan.Stance, speed);
+            {
+                // A human's held shot goes all out for a ball they could not reach at a run, as they would themselves.
+                float runTo = Assisted && !Shot.Plan.Reachable ? Mathf.Max(speed, movementTuning.SprintSpeed) : speed;
+                return Movement.ArriveVelocity(Shot.Plan.Stance, runTo);
+            }
 
             if (intent.Move.sqrMagnitude > StickActive * StickActive)
             {
@@ -203,6 +254,9 @@ namespace TennisSim.Simulation
                 float scaled = speed * (preparing ? movementTuning.PreparingSpeedScale : 1f);
                 return new Vector3(move.x, 0f, move.y) * scaled;
             }
+
+            if (approach.Valid)
+                return Movement.ArriveVelocity(approach.Stance, speed);
 
             if (recovering)
                 return Movement.ArriveVelocity(RecoveryPoint(), movementTuning.RunSpeed * movementTuning.RecoverySpeedScale);

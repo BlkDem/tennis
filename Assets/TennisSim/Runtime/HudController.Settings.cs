@@ -8,7 +8,7 @@ using UnityEngine.UI;
 
 namespace TennisSim
 {
-    /// <summary>The settings screens: graphics, sound and window, and rebinding the controls.</summary>
+    /// <summary>The settings screens: graphics, sound, window and resolution, and rebinding the controls.</summary>
     public sealed partial class HudController
     {
         static readonly string[] QualityChoices = { "Низкая", "Средняя", "Высокая" };
@@ -30,7 +30,7 @@ namespace TennisSim
         }
 
         GameObject settings, controls;
-        OptionRow qualityRow, effectsRow, crowdRow, screenRow;
+        OptionRow qualityRow, effectsRow, crowdRow, screenRow, resolutionRow;
         Selectable controlsButton, controlsReset;
         GameObject returnTo;
         GameObject returnFocus;
@@ -43,7 +43,9 @@ namespace TennisSim
         {
             settings = Group("Settings", canvasRoot);
             settings.SetActive(false);
-            RectTransform panel = Box("Settings Panel", settings.transform, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(820f, 640f), PanelColour, centred: true);
+            bool resolutions = GameSettings.ResolutionChoosable;
+            float extra = resolutions ? 80f : 0f;
+            RectTransform panel = Box("Settings Panel", settings.transform, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(820f, 640f + extra), PanelColour, centred: true);
             Label(panel, "НАСТРОЙКИ", new Vector2(0f, -36f), new Vector2(820f, 70f), 52, Accent, TextAnchor.MiddleCenter, true, centred: true);
 
             qualityRow = Option(panel, "Графика", QualityChoices, (int)GameSettings.GraphicsQuality, new Vector2(0f, -130f));
@@ -54,10 +56,17 @@ namespace TennisSim
             effectsRow.Changed += i => GameSettings.EffectsVolume = i / 10f;
             crowdRow.Changed += i => GameSettings.CrowdVolume = i / 10f;
             screenRow.Changed += i => GameSettings.Fullscreen = i == 0;
+            if (resolutions)
+            {
+                Vector2Int[] sizes = GameSettings.Resolutions;
+                resolutionRow = Option(panel, "Разрешение", sizes.Select(s => $"{s.x}×{s.y}").ToArray(),
+                    System.Array.IndexOf(sizes, GameSettings.Resolution), new Vector2(0f, -450f));
+                resolutionRow.Changed += i => GameSettings.Resolution = sizes[i];
+            }
 
-            controlsButton = MenuButton(panel, "УПРАВЛЕНИЕ", new Vector2(0f, -460f), OpenControls);
-            Selectable back = MenuButton(panel, "НАЗАД", new Vector2(0f, -540f), CloseSettings);
-            Chain(qualityRow, effectsRow, crowdRow, screenRow, controlsButton, back);
+            controlsButton = MenuButton(panel, "УПРАВЛЕНИЕ", new Vector2(0f, -460f - extra), OpenControls);
+            Selectable back = MenuButton(panel, "НАЗАД", new Vector2(0f, -540f - extra), CloseSettings);
+            Chain(qualityRow, effectsRow, crowdRow, screenRow, resolutionRow, controlsButton, back);
         }
 
         void BuildControls()

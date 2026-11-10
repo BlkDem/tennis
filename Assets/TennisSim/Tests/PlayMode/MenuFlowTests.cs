@@ -103,8 +103,9 @@ namespace TennisSim.Tests
                 Assert.That(game.PauseKeysBlocked, Is.True);
                 TestScreenshots.Save(Camera.main, "settings.png", withInterface: true);
 
-                // Graphics, effects, crowd, screen, then controls.
-                for (int i = 0; i < 4; i++) yield return Tap(GamepadButton.DpadDown);
+                // Graphics, effects, crowd, screen, resolution (not in a browser), then controls.
+                int rows = GameSettings.ResolutionChoosable ? 5 : 4;
+                for (int i = 0; i < rows; i++) yield return Tap(GamepadButton.DpadDown);
                 yield return Tap(GamepadButton.South);
                 Assert.That(GameObject.Find("Controls")?.activeSelf, Is.True, "the controls screen opens");
                 TestScreenshots.Save(Camera.main, "controls.png", withInterface: true);

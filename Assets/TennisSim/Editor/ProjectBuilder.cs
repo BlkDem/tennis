@@ -68,7 +68,10 @@ namespace TennisSim.EditorTools
 
         static readonly string[] LoopingClips =
         {
-            "Idle", "Ready", "Walk", "Run", "Sprint", "Backpedal", "StrafeLeft", "StrafeRight",
+            "Idle", "Ready",
+            "Walk", "WalkLeft", "WalkRight", "WalkBackLeft", "WalkBackRight",
+            "Jog", "JogLeft", "JogRight", "JogBackLeft", "JogBackRight",
+            "Run", "RunLeft", "RunRight", "RunBackLeft", "RunBackRight",
             "Forehand_Prep", "Backhand_Prep", "ForehandSlice_Prep", "BackhandSlice_Prep", "Volley_Prep", "Smash_Prep",
             "Serve_Ready",
         };
@@ -596,26 +599,30 @@ namespace TennisSim.EditorTools
 
             AssetDatabase.DeleteAsset(AnimatorPath);
             AnimatorController controller = AnimatorController.CreateAnimatorControllerAtPath(AnimatorPath);
-            controller.AddParameter("MoveX", AnimatorControllerParameterType.Float);
-            controller.AddParameter("MoveZ", AnimatorControllerParameterType.Float);
+            controller.AddParameter("Speed", AnimatorControllerParameterType.Float);
+            controller.AddParameter("DirX", AnimatorControllerParameterType.Float);
+            controller.AddParameter(new AnimatorControllerParameter { name = "DirZ", type = AnimatorControllerParameterType.Float, defaultFloat = 1f });
             controller.AddParameter("Engaged", AnimatorControllerParameterType.Bool);
             controller.AddParameter(new AnimatorControllerParameter { name = "SwingSpeed", type = AnimatorControllerParameterType.Float, defaultFloat = 1f });
+            controller.AddParameter(new AnimatorControllerParameter { name = "StrideRate", type = AnimatorControllerParameterType.Float, defaultFloat = 1f });
 
             AnimatorStateMachine body = controller.layers[0].stateMachine;
 
+            // Each gait plays alone over a range of speeds, at the rate the controller sets to keep its planted foot in
+            // pace with the player, with a short blend between gaits. Within a gait the four directions share cadence
+            // and footfalls, so they blend by direction without a planted foot meeting a swinging one.
             AnimatorState locomotion = controller.CreateBlendTreeInController("Locomotion", out BlendTree tree, 0);
-            tree.blendType = BlendTreeType.FreeformDirectional2D;
-            tree.blendParameter = "MoveX";
-            tree.blendParameterY = "MoveZ";
+            tree.blendType = BlendTreeType.Simple1D;
+            tree.blendParameter = "Speed";
             tree.useAutomaticThresholds = false;
-            // Positions are the speeds the clips were authored at, in m/s, so feet stay planted at runtime.
-            tree.AddChild(clips["Ready"], Vector2.zero);
-            tree.AddChild(clips["Walk"], new Vector2(0f, 2f));
-            tree.AddChild(clips["Run"], new Vector2(0f, 6.2f));
-            tree.AddChild(clips["Sprint"], new Vector2(0f, 7.8f));
-            tree.AddChild(clips["Backpedal"], new Vector2(0f, -4f));
-            tree.AddChild(clips["StrafeRight"], new Vector2(5f, 0f));
-            tree.AddChild(clips["StrafeLeft"], new Vector2(-5f, 0f));
+            tree.AddChild(clips["Ready"], 0f);
+            foreach ((string gait, float _, float from, float to) in PlayerAnimationController.Gaits)
+            {
+                AddDirections(tree, gait, from, clips);
+                if (to > from) AddDirections(tree, gait, to, clips);
+            }
+            locomotion.speedParameter = "StrideRate";
+            locomotion.speedParameterActive = true;
             body.defaultState = locomotion;
 
             AnimatorState idle = AddState(body, "Idle", clips);
@@ -681,6 +688,27 @@ namespace TennisSim.EditorTools
         }
 
         /// <summary>The chest and arms play the shot while the legs keep running.</summary>
+        /// <summary>
+        /// One gait in its five directions, at the given speed of the locomotion blend. The retreats sit where they were
+        /// authored to travel, just either side of straight back.
+        /// </summary>
+        static void AddDirections(BlendTree speeds, string gait, float threshold, Dictionary<string, AnimationClip> clips)
+        {
+            const float Retreat = PlayerAnimationController.RetreatSideAngle * Mathf.Deg2Rad;
+            var backRight = new Vector2(Mathf.Sin(Retreat), Mathf.Cos(Retreat));
+            BlendTree directions = speeds.CreateBlendTreeChild(threshold);
+            directions.name = $"{gait} {threshold:0.0}";
+            directions.blendType = BlendTreeType.SimpleDirectional2D;
+            directions.blendParameter = "DirX";
+            directions.blendParameterY = "DirZ";
+            directions.useAutomaticThresholds = false;
+            directions.AddChild(clips[gait], new Vector2(0f, 1f));
+            directions.AddChild(clips[gait + "Right"], new Vector2(1f, 0f));
+            directions.AddChild(clips[gait + "Left"], new Vector2(-1f, 0f));
+            directions.AddChild(clips[gait + "BackRight"], backRight);
+            directions.AddChild(clips[gait + "BackLeft"], new Vector2(-backRight.x, backRight.y));
+        }
+
         static AvatarMask BuildUpperBodyMask()
         {
             AssetDatabase.DeleteAsset(UpperBodyMaskPath);

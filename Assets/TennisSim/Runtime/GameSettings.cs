@@ -1,3 +1,4 @@
+using System.Linq;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
@@ -74,7 +75,34 @@ namespace TennisSim
         public static bool Fullscreen
         {
             get => Screen.fullScreenMode != FullScreenMode.Windowed;
-            set => Screen.fullScreenMode = value ? FullScreenMode.FullScreenWindow : FullScreenMode.Windowed;
+            set
+            {
+                // Full screen starts at the display's own resolution, not at the size the window happened to have.
+                if (value) Screen.SetResolution(Display.main.systemWidth, Display.main.systemHeight, FullScreenMode.FullScreenWindow);
+                else Screen.fullScreenMode = FullScreenMode.Windowed;
+            }
+        }
+
+        /// <summary>A browser page takes the size of its canvas, so only a desktop game picks its resolution.</summary>
+        public static bool ResolutionChoosable => Application.platform != RuntimePlatform.WebGLPlayer;
+
+        /// <summary>The sizes the display offers, smallest first, once each whatever the refresh rate, and always the current one.</summary>
+        public static Vector2Int[] Resolutions =>
+            Screen.resolutions.Select(r => new Vector2Int(r.width, r.height))
+                .Where(r => r.x >= 960 && r.y >= 540)
+                .Append(Resolution)
+                .Distinct()
+                .OrderBy(r => r.x * r.y).ThenBy(r => r.x)
+                .ToArray();
+
+        /// <summary>
+        /// The window's size, or in full screen the size the game renders at before the display scales it up. Unity
+        /// remembers it between runs by itself.
+        /// </summary>
+        public static Vector2Int Resolution
+        {
+            get => new Vector2Int(Screen.width, Screen.height);
+            set => Screen.SetResolution(value.x, value.y, Screen.fullScreenMode);
         }
 
         /// <summary>The control rebinds, as the Input System's override JSON; empty for the defaults.</summary>

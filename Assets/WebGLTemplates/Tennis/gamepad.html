@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Проверка геймпада</title>
+<style>
+  :root { --bg: #0b1218; --panel: #13202a; --text: #eef1ee; --muted: #9aa8ad; --good: #6fd87a; --bad: #ff7a62; --accent: #f9cc38; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.5 system-ui, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { color: var(--accent); font-size: 26px; margin: 0 0 8px; }
+  p { color: var(--muted); margin: 0 0 16px; }
+  .pad { background: var(--panel); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+  .verdict { font-weight: 700; margin: 8px 0; }
+  .good { color: var(--good); } .bad { color: var(--bad); }
+  code, pre { font-family: ui-monospace, Consolas, monospace; font-size: 13px; }
+  pre { white-space: pre-wrap; word-break: break-all; color: var(--muted); margin: 8px 0 0; }
+  .buttons span { display: inline-block; min-width: 28px; margin: 2px; padding: 2px 4px; border-radius: 4px; background: #22323d; text-align: center; font-size: 13px; }
+  .buttons span.on { background: var(--good); color: #0b1218; }
+  #copy { margin-top: 8px; padding: 8px 14px; border: 0; border-radius: 6px; background: var(--accent); color: #0b1218; font-weight: 700; cursor: pointer; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Проверка геймпада</h1>
+  <p>Подключите геймпад и нажмите на нём любую кнопку: браузер показывает геймпад странице только после нажатия.</p>
+  <div id="pads"><div class="pad">Геймпад пока не виден.</div></div>
+  <button id="copy">Скопировать отчёт</button>
+  <pre id="agent"></pre>
+</main>
+<script>
+  const padsEl = document.getElementById('pads');
+  document.getElementById('agent').textContent = navigator.userAgent;
+
+  function report() {
+    const pads = navigator.getGamepads ? Array.from(navigator.getGamepads()).filter(Boolean) : [];
+    const lines = [navigator.userAgent];
+    for (const p of pads) lines.push(`#${p.index} id="${p.id}" mapping="${p.mapping}" buttons=${p.buttons.length} axes=${p.axes.length}`);
+    if (!pads.length) lines.push('no gamepads');
+    return lines.join('\n');
+  }
+
+  function draw() {
+    const pads = navigator.getGamepads ? Array.from(navigator.getGamepads()).filter(Boolean) : [];
+    if (!navigator.getGamepads) {
+      padsEl.innerHTML = '<div class="pad bad">Этот браузер не поддерживает геймпады.</div>';
+    } else if (pads.length) {
+      padsEl.innerHTML = pads.map(p => {
+        const standard = p.mapping === 'standard';
+        const buttons = p.buttons.map((b, i) => `<span class="${b.pressed ? 'on' : ''}">${i}</span>`).join('');
+        const axes = p.axes.map(a => a.toFixed(2)).join('  ');
+        return `<div class="pad">
+          <div><code>${p.id.replace(/</g, '&lt;')}</code></div>
+          <div class="verdict ${standard ? 'good' : 'bad'}">${standard
+            ? 'Стандартная раскладка: игра должна видеть этот геймпад.'
+            : `Раскладка «${p.mapping || 'нет'}» — не стандартная, игра такой геймпад не понимает.`}</div>
+          <div class="buttons">${buttons}</div>
+          <pre>оси: ${axes}</pre>
+        </div>`;
+      }).join('');
+    }
+    requestAnimationFrame(draw);
+  }
+  requestAnimationFrame(draw);
+
+  document.getElementById('copy').addEventListener('click', async () => {
+    const text = report();
+    try { await navigator.clipboard.writeText(text); document.getElementById('copy').textContent = 'Скопировано'; }
+    catch { document.getElementById('agent').textContent = text; }
+  });
+</script>
+</body>
+</html>

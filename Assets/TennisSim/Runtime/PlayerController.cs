@@ -8,8 +8,9 @@ namespace TennisSim
     {
         const float TeleportDistance = 3f;
 
-        [Tooltip("How fast the body turns to keep facing the ball, degrees per second.")]
-        public float turnSpeed = 540f;
+        [Tooltip("How fast the body turns to keep facing the ball, degrees per second. Turning swings the planted feet " +
+                 "round with the body, so a quick turn reads as the feet skating.")]
+        public float turnSpeed = 240f;
         [Tooltip("How far from facing the net the body may turn towards the ball, degrees.")]
         public float maxLookAngle = 35f;
 

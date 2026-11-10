@@ -851,6 +851,80 @@ namespace TennisSim.Tests
             Assert.That(hit, Is.True);
         }
 
+        /// <summary>No stick, no button: a human watching the ball come.</summary>
+        sealed class HandsOff : IPlayerIntentSource
+        {
+            public PlayerIntent ReadIntent(in PlayerPerception p) => default;
+        }
+
+        /// <summary>A quick tap of the shot button the moment the ball can be played, long before it arrives.</summary>
+        sealed class EarlyTap : IPlayerIntentSource
+        {
+            int step;
+
+            public PlayerIntent ReadIntent(in PlayerPerception p)
+            {
+                var intent = new PlayerIntent { AimCursor = true };
+                if (p.AwaitingServe || !p.CanHit) return intent;
+                if (step == 0) intent.Pressed = ShotButton.Auto;
+                else if (step == 1) intent.Released = ShotButton.Auto;
+                step++;
+                return intent;
+            }
+        }
+
+        static ShotResult? PlayUntilNearHits(RallySession session, float seconds)
+        {
+            for (int i = 0; i < (int)(seconds / Dt); i++)
+            {
+                session.Tick(Dt);
+                foreach (RallyEvent e in session.Events)
+                    if (e.Type == RallyEventType.Hit && e.Slot == PlayerSlot.Near) return e.Shot;
+            }
+            return null;
+        }
+
+        [Test]
+        public void Approach_AssistedPlayerWalksUpToABallComingNearWithTheStickLetGo()
+        {
+            (RallySession session, PlayerAgent near) = IncomingDeepBall(new HandsOff());
+            near.Assisted = true;
+            near.Movement.Teleport(near.Position + Vector3.right * 1.5f);
+            var movement = new PlayerMovementTuning();
+            ContactPlan plan = ContactPlanner.Find(session.Trajectory, near.Position, PlayerSlot.Near, null, ShotButton.Auto, session.Time,
+                movement.RunSpeed, movement, new ShotTuning());
+            float before = Vector3.Distance(near.Position, plan.Stance);
+
+            while (session.Time < plan.Time - 0.05f) session.Tick(Dt);
+            float after = Vector3.Distance(near.Position, plan.Stance);
+            TestContext.WriteLine($"from {before:F2} m to {after:F2} m off the place to hit from");
+            Assert.That(before, Is.GreaterThan(0.5f), "the test needs a ball the player has to move for");
+            Assert.That(after, Is.LessThan(0.3f), "with the stick let go the player walks up to the ball by themselves");
+        }
+
+        [Test]
+        public void Approach_BotsAndManualPlayersAreNotWalkedAnywhere()
+        {
+            (RallySession session, PlayerAgent near) = IncomingDeepBall(new HandsOff());
+            near.Assisted = false;
+            for (int i = 0; i < (int)(0.5f / Dt); i++) session.Tick(Dt);
+            Assert.That(near.Approach.Valid, Is.False);
+        }
+
+        [Test]
+        public void EarlyRelease_ATapLongBeforeTheBallStillPlaysItForAHuman()
+        {
+            (RallySession assistedSession, PlayerAgent assisted) = IncomingDeepBall(new EarlyTap());
+            assisted.Assisted = true;
+            ShotResult? shot = PlayUntilNearHits(assistedSession, 2.5f);
+            Assert.That(shot.HasValue, Is.True, "an early tap waits for the ball");
+            Assert.That(shot.Value.Quality, Is.Not.EqualTo(ContactQuality.Perfect), "letting go early is never the best shot");
+
+            (RallySession botSession, PlayerAgent bot) = IncomingDeepBall(new EarlyTap());
+            bot.Assisted = false;
+            Assert.That(PlayUntilNearHits(botSession, 2.5f).HasValue, Is.False, "without the help an early release swings at the air");
+        }
+
         /// <summary>Keyboard play: holds a shot from the moment the ball can be played, with the movement keys held as given.</summary>
         sealed class CursorWhilePreparing : IPlayerIntentSource
         {

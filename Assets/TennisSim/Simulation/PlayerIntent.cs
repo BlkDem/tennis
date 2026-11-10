@@ -11,8 +11,8 @@ namespace TennisSim.Simulation
         public ShotButton? Pressed;
         public ShotButton? Released;
         /// <summary>
-        /// Keyboard play: while a shot button is held, Move steers an aim cursor on the other half instead of the player,
-        /// who runs to the ball by themselves. On a gamepad the stick keeps moving the player and the right stick aims.
+        /// While a shot button is held, Move (or Aim) steers an aim cursor on the other half instead of the player, who
+        /// runs to the ball by themselves. Off, the stick keeps moving a preparing player and aims only at the contact.
         /// </summary>
         public bool AimCursor;
     }

@@ -133,6 +133,7 @@ namespace TennisSim
 
             PlayerAgent near = Session.Agent(PlayerSlot.Near);
             near.AutoPositioning = setup.NearIsAi || AutoPositioning;
+            near.Assisted = !setup.NearIsAi;
             near.IntentSource = setup.NearIsAi ? new OpponentAI(near, setup.Level, rng) : (IPlayerIntentSource)inputManager.Near;
             farAi = null;
             ApplyFarPlayerControl(!setup.VersusHuman);
@@ -149,6 +150,7 @@ namespace TennisSim
             NewSession(Setup.Rules);
             PlayerAgent near = Session.Agent(PlayerSlot.Near);
             near.AutoPositioning = true;
+            near.Assisted = false;
             near.IntentSource = new OpponentAI(near, AiLevel.Hard, rng);
             farAi = null;
             ApplyFarPlayerControl(true);
@@ -217,6 +219,7 @@ namespace TennisSim
             PlayerAgent far = Session.Agent(PlayerSlot.Far);
             farAi ??= new OpponentAI(far, Setup.Level, rng);
             far.AutoPositioning = useBot || AutoPositioning;
+            far.Assisted = !useBot;
             far.IntentSource = useBot ? farAi : (IPlayerIntentSource)inputManager.Far;
         }
 

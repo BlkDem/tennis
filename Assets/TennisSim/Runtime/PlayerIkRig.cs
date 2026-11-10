@@ -50,6 +50,8 @@ namespace TennisSim
         public float stepHeight = 0.07f;
         [Tooltip("How long the clip takes to get a planted foot back when the player sets off, seconds.")]
         public float releaseTime = 0.12f;
+        [Tooltip("Running, a foot held where it landed lets go once the clip has it this far away, metres.")]
+        public float maxLandedSlip = 0.25f;
         [Tooltip("How far the front foot steps in towards a shot taken standing, metres.")]
         public float stepInDistance = 0.3f;
         public float stepInBefore = 0.35f;
@@ -73,6 +75,9 @@ namespace TennisSim
         readonly FootState[] footStates = { new FootState(), new FootState() };
         float footGround;
         float transfer;
+        Vector3 lastRootPosition;
+        /// <summary>Further than this between two frames, metres, the player was placed rather than moved.</summary>
+        const float JumpDistance = 0.4f;
         float lastHitAt = float.NegativeInfinity;
         const float TeleportDistance = 1.2f;
 
@@ -199,6 +204,23 @@ namespace TennisSim
                 writtenPose[i] = new Pose(adjusted[i].localPosition, adjusted[i].localRotation);
         }
 
+        /// <summary>Lets the clip have both feet again, from where it puts them now.</summary>
+        void ResetFeet()
+        {
+            for (int i = 0; i < 2; i++)
+            {
+                FootState foot = footStates[i];
+                foot.planted = false;
+                foot.stepping = false;
+                foot.landed = false;
+                foot.release = 1f;
+                foot.position = foot.target = feet[i].position;
+                foot.rotation = foot.targetRotation = feet[i].rotation;
+                foot.lastAnimated = transform.InverseTransformPoint(feet[i].position);
+            }
+            transfer = 0f;
+        }
+
         void OnEnable() => GameEvents.RallyEvent += OnRallyEvent;
         void OnDisable() => GameEvents.RallyEvent -= OnRallyEvent;
 
@@ -229,7 +251,12 @@ namespace TennisSim
                 contactTime = float.NegativeInfinity;
                 lastHitAt = float.NegativeInfinity;
                 hitRecorded = false;
+                ResetFeet();
             }
+            // Put somewhere else in a single frame, as a new match or point does: feet held to the court where the player
+            // was would drag the legs sideways until they stepped across.
+            if (Vector3.Distance(transform.position, lastRootPosition) > JumpDistance) ResetFeet();
+            lastRootPosition = transform.position;
 
             float now = session.Time + Mathf.Clamp01((Time.time - Time.fixedTime) / Time.fixedDeltaTime) * Time.fixedDeltaTime;
             UpdateContact(now);
@@ -334,7 +361,9 @@ namespace TennisSim
             {
                 // Rising for a high ball takes the feet with it: onto the toes, or off the ground on a serve.
                 Vector3 target = footStates[i].target + Vector3.up * lift;
-                Vector3 kneeHint = lowerLegs[i].position + transform.forward * 0.5f;
+                // The knee keeps the way the clip bends it, out over the toes; a forward hint alone caves the knees in.
+                Vector3 bend = lowerLegs[i].position - (upperLegs[i].position + feet[i].position) * 0.5f;
+                Vector3 kneeHint = lowerLegs[i].position + (bend.sqrMagnitude > 1e-4f ? bend.normalized : transform.forward) * 0.5f;
                 TwoBone(upperLegs[i], lowerLegs[i], feet[i], target, kneeHint);
                 feet[i].rotation = footStates[i].targetRotation;
             }
@@ -361,20 +390,28 @@ namespace TennisSim
             public float release = 1f;
             public Vector3 target;
             public Quaternion targetRotation;
+            /// <summary>Running, the clip has this foot on the ground and it is held where it landed.</summary>
+            public bool landed;
+            /// <summary>Where the clip had the foot last frame, in the player's own space.</summary>
+            public Vector3 lastAnimated;
         }
 
         /// <summary>
         /// Decides where each foot goes this frame. Standing or nearly so, feet stick to the court; when the body has
         /// turned or moved too far from a foot, it steps, one foot at a time, with a little lift. Before a shot taken
-        /// standing, the front foot steps in towards the ball. Running, the clip has the feet. Returns the foot stepping
-        /// into a shot, or -1.
+        /// standing, the front foot steps in towards the ball. Running, the clip has the feet, except that a foot the
+        /// clip puts down stays where it landed until the clip lifts it: the strides cannot keep pace with a player who
+        /// starts, stops and turns as sharply as this one, and a foot that kept to the clip would skate. Returns the foot
+        /// stepping into a shot, or -1.
         /// </summary>
         int PlanFeet(float now)
         {
             PlayerAgent agent = player.Agent;
             Vector3 velocity = agent.Movement.Velocity;
             float speed = new Vector2(velocity.x, velocity.z).magnitude;
-            bool lockable = animationController != null && animationController.FeetFree && speed < plantMaxSpeed;
+            bool feetFree = animationController != null && animationController.FeetFree;
+            bool lockable = feetFree && speed < plantMaxSpeed;
+            Vector3 travel = speed > 0.01f ? transform.InverseTransformDirection(new Vector3(velocity.x, 0f, velocity.z) / speed) : Vector3.zero;
 
             int front = -1;
             SwingPhase phase = agent.Shot.Phase;
@@ -393,6 +430,33 @@ namespace TennisSim
                 Quaternion desiredRotation = feet[i].rotation;
                 if (i == front) desired += Vector3.ProjectOnPlane(transform.forward, Vector3.up) * stepInDistance;
                 bool grounded = feet[i].position.y - transform.position.y < footGround + 0.05f;
+
+                // A foot on the ground in the clip moves back against the travel, or not at all; a swinging one goes forward.
+                Vector3 animated = transform.InverseTransformPoint(feet[i].position);
+                float forwardSpeed = Time.deltaTime > 0f ? Vector3.Dot(animated - foot.lastAnimated, travel) / Time.deltaTime : 0f;
+                foot.lastAnimated = animated;
+                bool down = grounded && forwardSpeed < 0.3f * speed;
+                if (!lockable && feetFree && down)
+                {
+                    if (!foot.landed)
+                    {
+                        // Held from where the foot is now, so taking over makes no jump.
+                        foot.landed = true;
+                        foot.position = foot.release < 1f ? foot.target : desired;
+                        foot.rotation = foot.release < 1f ? foot.targetRotation : desiredRotation;
+                    }
+                    // Left too far behind by a sudden change of pace, the foot goes with the clip after all.
+                    if (Vector3.ProjectOnPlane(desired - foot.position, Vector3.up).magnitude < maxLandedSlip)
+                    {
+                        foot.planted = false;
+                        foot.stepping = false;
+                        foot.release = 0f;
+                        foot.target = new Vector3(foot.position.x, desired.y, foot.position.z);
+                        foot.targetRotation = desiredRotation;
+                        continue;
+                    }
+                }
+                foot.landed = false;
 
                 if (!lockable || !grounded)
                 {
