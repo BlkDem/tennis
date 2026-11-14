@@ -474,4 +474,6 @@ def main():
         prepare_player(player_source, work_dir, art_dir)
 
 
-main()
+# prepare_animated_player.py imports this module for its texture helpers.
+if __name__ == "__main__":
+    main()

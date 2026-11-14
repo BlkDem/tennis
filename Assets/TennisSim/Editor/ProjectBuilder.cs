@@ -68,9 +68,8 @@ namespace TennisSim.EditorTools
 
         static readonly string[] LoopingClips =
         {
-            "Idle", "Ready",
+            "Idle", "Ready", "WarmUp",
             "Walk", "WalkLeft", "WalkRight", "WalkBackLeft", "WalkBackRight",
-            "Jog", "JogLeft", "JogRight", "JogBackLeft", "JogBackRight",
             "Run", "RunLeft", "RunRight", "RunBackLeft", "RunBackRight",
             "Forehand_Prep", "Backhand_Prep", "ForehandSlice_Prep", "BackhandSlice_Prep", "Volley_Prep", "Smash_Prep",
             "Serve_Ready",
@@ -84,13 +83,16 @@ namespace TennisSim.EditorTools
         };
 
         /// <summary>Whole-body states the animation controller moves between itself, so they have no transitions.</summary>
-        static readonly string[] ServeStates = { "Serve_Ready", "Serve_Toss", "Serve_Swing", "SplitStep" };
+        static readonly string[] ControlledStates = { "Serve_Ready", "Serve_Toss", "Serve_Swing", "SplitStep", "WarmUp" };
+
+        /// <summary>Reactions that play once and go back to the locomotion by themselves.</summary>
+        static readonly string[] ReactionStates = { "Celebrate", "PointLost", "Greet", "Defeat" };
 
         static readonly string[] AllClips = LoopingClips
             .Concat(new[]
             {
                 "Forehand_Swing", "Backhand_Swing", "ForehandSlice_Swing", "BackhandSlice_Swing", "Volley_Swing", "Smash_Swing",
-                "Serve_Toss", "Serve_Swing", "SplitStep", "Recovery", "Celebrate", "PointLost",
+                "Serve_Toss", "Serve_Swing", "SplitStep", "Recovery", "Celebrate", "PointLost", "Greet", "Defeat",
             })
             .ToArray();
 
@@ -639,7 +641,7 @@ namespace TennisSim.EditorTools
             engage.duration = 0.15f;
             engage.AddCondition(AnimatorConditionMode.If, 0f, "Engaged");
 
-            foreach (string name in new[] { "Celebrate", "PointLost" })
+            foreach (string name in ReactionStates)
             {
                 AnimatorState state = AddState(body, name, clips);
                 AnimatorStateTransition done = state.AddTransition(locomotion);
@@ -647,7 +649,7 @@ namespace TennisSim.EditorTools
                 done.exitTime = 0.95f;
                 done.duration = 0.2f;
             }
-            foreach (string name in ServeStates)
+            foreach (string name in ControlledStates)
             {
                 AnimatorState state = AddState(body, name, clips);
                 if (name == "Serve_Swing")

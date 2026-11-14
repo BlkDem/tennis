@@ -48,6 +48,10 @@ namespace TennisSim
         [Tooltip("Open on the menu. Off goes straight into a match against the AI, as the prototype did.")]
         public bool startInMenu = true;
 
+        /// <summary>How long the players warm up before the menu's exhibition match, seconds: once through the warm-up.</summary>
+        const float WarmUpSeconds = 18f;
+        float warmUpUntil;
+
         System.Random rng;
         int seed;
         OpponentAI farAi;
@@ -57,6 +61,8 @@ namespace TennisSim
         public GamePhase Phase { get; private set; }
         public MatchSetup Setup { get; private set; }
         public bool FarIsBot => farIsBot;
+        /// <summary>Behind the menu, the players warm up before their exhibition match starts; play waits meanwhile.</summary>
+        public bool WarmingUp => Phase == GamePhase.Menu && Time.time < warmUpUntil;
         public AiLevel AiLevel => Setup.Level;
         public bool AutoPositioning { get; private set; } = true;
 
@@ -91,6 +97,8 @@ namespace TennisSim
 
         void FixedUpdate()
         {
+            ShowWarmUp();
+            if (WarmingUp) return;
             Session.Tick(RallySession.TickDt);
 
             foreach (RallyEvent e in Session.Events)
@@ -105,8 +113,20 @@ namespace TennisSim
             if (Phase == GamePhase.Menu && Session.State == SessionState.MatchOver) ShowMenu();
         }
 
+        void ShowWarmUp()
+        {
+            bool warming = WarmingUp;
+            ball.Hidden = warming;
+            foreach (PlayerController player in new[] { nearPlayer, farPlayer })
+            {
+                var animation = player.GetComponent<PlayerAnimationController>();
+                if (animation != null) animation.WarmingUp = warming;
+            }
+        }
+
         void Update()
         {
+            ShowWarmUp();
             Keyboard keyboard = Keyboard.current;
             Gamepad gamepad = Gamepad.current;
             bool pausePressed = (keyboard != null && keyboard.escapeKey.wasPressedThisFrame) || (gamepad != null && gamepad.startButton.wasPressedThisFrame);
@@ -140,6 +160,7 @@ namespace TennisSim
             if (environment != null) environment.Apply(setup.Evening);
 
             Time.timeScale = 1f;
+            warmUpUntil = 0f;
             SetPhase(GamePhase.Playing);
         }
 
@@ -156,6 +177,7 @@ namespace TennisSim
             ApplyFarPlayerControl(true);
             if (environment != null) environment.Apply(false);
             Time.timeScale = 1f;
+            warmUpUntil = Time.time + WarmUpSeconds;
             SetPhase(GamePhase.Menu);
         }
 

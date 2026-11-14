@@ -135,9 +135,9 @@
 Модели, анимации и текстуры корта собираются скриптами из `Tools/Blender` (нужен Blender 5.2). Результат лежит в `Assets/TennisSim/Art`. Запускать из корня проекта; `<work>` — любая папка для промежуточных файлов:
 
 ```
-blender -b --factory-startup --python Tools/Blender/prepare_meshes.py -- <player.glb> <racket.glb> <work> Assets/TennisSim/Art/Player
+blender -b --factory-startup --python Tools/Blender/prepare_meshes.py -- <player.glb> <racket.glb> <work> Assets/TennisSim/Art/Player racket
+blender -b --factory-startup --python Tools/Blender/prepare_animated_player.py -- models/<игрок>.glb <work> Assets/TennisSim/Art/Player
 blender -b --factory-startup --python Tools/Blender/rig_and_animate.py -- <work> Assets/TennisSim/Art/Player
-blender -b --factory-startup --python Tools/Blender/remove_logo.py -- <work> Assets/TennisSim/Art/Player
 blender -b --factory-startup --python Tools/Blender/make_court_textures.py -- Assets/TennisSim/Art/Court
 blender -b --factory-startup --python Tools/Blender/make_stadium.py -- Assets/TennisSim/Art/Stadium
 blender -b --factory-startup --python Tools/Blender/make_crowd_atlas.py -- <work> Assets/TennisSim/Art/Player Assets/TennisSim/Art/Stadium
@@ -147,7 +147,9 @@ blender -b --factory-startup --python Tools/Blender/make_crowd_atlas.py -- <work
 
 После этого выполните **Tennis → Rebuild Project Assets and Scene**.
 
-Исходные GLB весят по 76 МБ и в репозиторий не входят. Первый шаг без них не запустить, но остальные работают, если промежуточные файлы первого шага сохранились.
+Игрок — модель из Tripo со скелетом Mixamo и анимациями (папка `models`). Из неё берутся меш, текстуры, шаг, бег, разминка, приветствие и поражение; удары и подача рассчитываются в `rig_and_animate.py`. Ракетка по-прежнему из `prepare_meshes.py` (шаг `racket`).
+
+Исходные GLB в репозиторий не входят. Первые шаги без них не запустить, но остальные работают, если промежуточные файлы сохранились.
 
 Шрифт интерфейса — Inter (лицензия SIL OFL, `Assets/TennisSim/Fonts/OFL.txt`). В браузере нет системных шрифтов, к которым Unity обращается за кириллицей, поэтому игра несёт шрифт с собой. Его собирает `Tools/Fonts/make_ui_font.py` из файла, который поставляется с Blender.
 

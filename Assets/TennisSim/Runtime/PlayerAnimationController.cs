@@ -19,6 +19,9 @@ namespace TennisSim
         const string Locomotion = "Locomotion";
         const string Celebrate = "Celebrate";
         const string PointLost = "PointLost";
+        const string WarmUp = "WarmUp";
+        const string Greet = "Greet";
+        const string Defeat = "Defeat";
         const string ServeReady = "Serve_Ready";
         const string ServeToss = "Serve_Toss";
         const string ServeSwing = "Serve_Swing";
@@ -56,15 +59,16 @@ namespace TennisSim
         public float moveDamping = 0.08f;
 
         /// <summary>
-        /// The gaits: the speed each clip was authored at, and the speeds over which it plays alone, faster or slower to
-        /// keep pace. Between two gaits there is only a short blend: clips with different footfalls cancel each other's
-        /// strides when mixed. Must match GAITS in Tools/Blender/rig_and_animate.py; ProjectBuilder builds the blend from it.
+        /// The gaits: the speed each clip's planted foot goes back at, and the speeds over which it plays alone, faster
+        /// or slower to keep pace. The clips are motion capture (rig_and_animate.py); the speeds are the planted foot's,
+        /// which in a run is a little slower than the body's average. Between the walk and the run there is only a short
+        /// blend: their footfalls differ, so mixed they partly cancel each other's strides, and the IK rig holds the
+        /// planted foot meanwhile. ProjectBuilder builds the blend from this table.
         /// </summary>
         public static readonly (string name, float authored, float from, float to)[] Gaits =
         {
-            ("Walk", 1.4f, 0.8f, 2.0f),
-            ("Jog", 3.5f, 2.6f, 4.6f),
-            ("Run", 6.2f, 5.2f, 5.2f),
+            ("Walk", 1.19f, 0.6f, 1.9f),
+            ("Run", 4.05f, 2.4f, 2.4f),
         };
 
         /// <summary>
@@ -137,6 +141,9 @@ namespace TennisSim
         /// and so does a change from one to another: the clip moves the feet to its new stance, and feet held to the
         /// court meanwhile would drag the legs sideways.
         /// </summary>
+        /// <summary>Set while the players warm up before the menu's exhibition match: the warm-up plays instead of play.</summary>
+        public bool WarmingUp { get; set; }
+
         public bool FeetFree => baseState == Locomotion && !animator.IsInTransition(BaseLayer);
 
         void Awake()
@@ -155,7 +162,8 @@ namespace TennisSim
             if (e.Type == RallyEventType.Hit && e.Slot == slot && visibleSwing != null && session != null) hitAt = session.Time;
             if (e.Type != RallyEventType.PointEnded) return;
 
-            string reaction = e.Slot == slot ? Celebrate : PointLost;
+            // The last point of a match: the winner waves to the crowd, the loser hangs their head.
+            string reaction = e.ScoreChange == ScoreChange.Match ? (e.Slot == slot ? Greet : Defeat) : (e.Slot == slot ? Celebrate : PointLost);
             animator.CrossFadeInFixedTime(reaction, reactionFade, BaseLayer);
             baseState = reaction;
             reactionUntil = Time.time + clipLengths[reaction];
@@ -193,6 +201,16 @@ namespace TennisSim
             // The simulation's clock at this rendered moment, between two ticks.
             float now = session.Time + Mathf.Clamp01((Time.time - Time.fixedTime) / Time.fixedDeltaTime) * Time.fixedDeltaTime;
 
+            if (WarmingUp)
+            {
+                // Each player runs through the warm-up from their own point in it, so the two do not move as one.
+                if (baseState != WarmUp)
+                    animator.CrossFadeInFixedTime(WarmUp, reactionFade, BaseLayer, slot == PlayerSlot.Far ? clipLengths[WarmUp] * 0.4f : 0f);
+                baseState = WarmUp;
+                return;
+            }
+            if (baseState == WarmUp) SetBase(Locomotion, reactionFade * 2f);
+
             Vector3 localVelocity = transform.InverseTransformDirection(agent.Movement.Velocity);
             UpdateLocomotion(localVelocity);
             bool inPlay = session.State == SessionState.Rally || session.State == SessionState.Toss;
@@ -200,7 +218,7 @@ namespace TennisSim
 
             // A celebration ends as soon as the player sets off to the next point; left alone, the controller's own
             // transition takes it back to locomotion when the clip ends.
-            bool reacting = baseState == Celebrate || baseState == PointLost;
+            bool reacting = baseState == Celebrate || baseState == PointLost || baseState == Greet || baseState == Defeat;
             if (reacting && localVelocity.magnitude > 0.6f)
             {
                 SetBase(Locomotion, reactionFade);

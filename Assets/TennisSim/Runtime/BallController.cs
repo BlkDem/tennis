@@ -22,6 +22,8 @@ namespace TennisSim
         Vector3 currentPosition;
 
         public Vector3 Position { get; private set; }
+        /// <summary>Out of sight, as while the players warm up and nobody holds a ball yet.</summary>
+        public bool Hidden { get; set; }
 
         public void Bind(RallySession rally)
         {
@@ -45,6 +47,8 @@ namespace TennisSim
             Position = Vector3.Lerp(previousPosition, currentPosition, alpha);
             transform.position = Position;
 
+            if (visual != null && visual.gameObject.activeSelf == Hidden) visual.gameObject.SetActive(!Hidden);
+            if (shadow != null && shadow.gameObject.activeSelf == Hidden) shadow.gameObject.SetActive(!Hidden);
             UpdateSpin();
             UpdateShadow();
             UpdateLandingMarker();

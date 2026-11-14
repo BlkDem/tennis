@@ -42,3 +42,6 @@ Thumbs.db
 
 # Python bytecode from the Blender scripts importing each other
 __pycache__/
+
+# Source models from Tripo: large, and the art pipeline turns them into Assets/TennisSim/Art
+/models/

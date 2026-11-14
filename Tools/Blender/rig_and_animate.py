@@ -3,10 +3,14 @@ Step 2 of the art pipeline: rigs the prepared player, skins the racket to its ha
 
     blender -b --factory-startup --python rig_and_animate.py -- <work_dir> <art_dir> [contact_sheet.png]
 
-Poses are authored in the game's frame, relative to the player's feet: r = to the player's right,
-f = forward towards the opponent, u = up, in metres. Two-bone IK solves the limbs for every sampled
-frame, so the racket's contact position can match the game's strike zone (StrikeZone in ContactPlanner.cs)
-and feet in running clips really do plant at the game's movement speed (PlayerMovementTuning).
+The player comes from prepare_animated_player.py with a Mixamo skeleton, its skin weights and motion-captured clips.
+The game's skeleton is built on the same joints, takes the weights over and carries the clips across: walking, running,
+the warm-up and the reactions at the end of a match are the source's own motion.
+
+The shots and the serve are computed instead, so they meet the ball where the game expects. Their poses are authored in
+the game's frame, relative to the player's feet: r = to the player's right, f = forward towards the opponent, u = up,
+in metres. Two-bone IK solves the limbs for every sampled frame, so the racket's contact position matches the game's
+strike zone (StrikeZone in ContactPlanner.cs).
 """
 import math
 import os
@@ -18,44 +22,17 @@ from mathutils import Euler, Matrix, Quaternion, Vector
 
 FPS = 60
 
-# Must match PlayerMovementTuning and ShotTuning in the game.
-RUN_SPEED = 6.2
-WALK_SPEED = 1.4
-JOG_SPEED = 3.5
+# Must match ShotTuning in the game.
 SWING_LATENCY = 0.14
 
-# The gaits, slowest first; ProjectBuilder blends them by these speeds, which must match PlayerAnimationController.Gaits.
-#   speed: m/s; cycle: seconds for two steps; stance: share of the cycle a foot is on the ground
-#   front: share of the planted foot's travel ahead of the hip, the rest behind: a foot lands nearly under the body
-#          and pushes off well behind it
-#   lift: swing foot height; heel: how far the heel has peeled up as the foot pushes off; land_pitch: toes up at landing
-#   width: half the gap between the feet; crouch, bounce: the hips' height in a run, lowest in mid-stance (m). A walk
-#          has no crouch of its own: the hips ride over a nearly straight leg, highest in mid-stance, and drop only as
-#          far as the leg needs to reach its foot (see reach_limited_hips)
-#   lean, hip: degrees forward and of hip swing; arm: arm swing (m); side_turn: how far the hips turn into a sideways stride
-# The cycles are short because this model's legs are: hip joint to ankle is 0.58 m, and a planted foot cannot travel
-# further than that leg reaches either side of the hip.
-GAITS = (
-    dict(name="Walk", speed=WALK_SPEED, cycle=0.78, stance=0.60, front=0.40, lift=0.06, heel=0.10, land_pitch=10.0,
-         width=0.10, crouch=0.0, bounce=0.0, lean=3.0, arm=0.12, hip=6.0, side_turn=55.0),
-    dict(name="Jog", speed=JOG_SPEED, cycle=0.66, stance=0.27, front=0.40, lift=0.13, heel=0.10, land_pitch=4.0,
-         width=0.11, crouch=0.035, bounce=0.02, lean=8.0, arm=0.16, hip=9.0, side_turn=65.0),
-    dict(name="Run", speed=RUN_SPEED, cycle=0.56, stance=0.185, front=0.37, lift=0.20, heel=0.12, land_pitch=0.0,
-         width=0.11, crouch=0.05, bounce=0.03, lean=14.0, arm=0.22, hip=12.0, side_turn=70.0),
-)
-# The least the knee bends with the foot planted, degrees: a leg locked straight reads as a stilt.
-MIN_KNEE_BEND = 10.0
-# The retreats travel this close to straight back, degrees clockwise from straight ahead, with the hips turned this far;
-# must match PlayerAnimationController.RetreatSideAngle.
+# The retreats travel this close to straight back, degrees clockwise from straight ahead; must match
+# PlayerAnimationController.RetreatSideAngle.
 RETREAT_TRAVEL = 175.0
-RETREAT_TURN = 140.0
 # However far the hips turn, the chest and head turn back towards the court by at most this much, degrees: a spine
 # twists only so far, and the head looks over the shoulder.
 MAX_COUNTER_TURN = 85.0
 
 MAX_BONES_PER_VERTEX = 4
-# Nothing on the torso or legs lies further out than this, while the arm in the rest pose does.
-BODY_HALF_WIDTH = 0.33
 
 
 def log(message):
@@ -77,59 +54,60 @@ def body_rotation(lean_forward, yaw_right, roll_right):
 
 # ---------------------------------------------------------------- Skeleton
 
+SOURCE_PREFIX = "mixamorig:"
 
-def side_joints(s):
+
+def side_bones(ours, theirs):
+    hand = [f"{theirs}HandThumb{i}" for i in range(1, 5)]
+    fingers = [f"{theirs}Hand{finger}{i}" for finger in ("Index", "Middle", "Ring", "Pinky") for i in range(1, 5)]
     return {
-        "clavicle": Vector((s * 0.03, 0.02, 1.44)),
-        "shoulder": Vector((s * 0.20, 0.03, 1.425)),
-        "elbow": Vector((s * 0.334, 0.04, 1.239)),
-        "wrist": Vector((s * 0.447, 0.0, 1.061)),
-        "knuckle": Vector((s * 0.475, -0.005, 1.0)),
-        "fingertip": Vector((s * 0.505, -0.01, 0.925)),
-        "hip": Vector((s * 0.115, 0.015, 0.80)),
-        "knee": Vector((s * 0.145, 0.0, 0.555)),
-        "ankle": Vector((s * 0.185, 0.05, 0.225)),
-        "toe": Vector((s * 0.205, -0.09, 0.055)),
-        "toetip": Vector((s * 0.215, -0.165, 0.05)),
+        ours + "Clavicle": (theirs + "Shoulder", theirs + "Arm", "Chest", theirs + "Shoulder", [theirs + "Shoulder"]),
+        ours + "UpperArm": (theirs + "Arm", theirs + "ForeArm", ours + "Clavicle", theirs + "Arm", [theirs + "Arm"]),
+        ours + "LowerArm": (theirs + "ForeArm", theirs + "Hand", ours + "UpperArm", theirs + "ForeArm", [theirs + "ForeArm"]),
+        ours + "Hand": (theirs + "Hand", theirs + "HandMiddle1", ours + "LowerArm", theirs + "Hand", [theirs + "Hand"] + hand),
+        ours + "Fingers": (theirs + "HandMiddle1", theirs + "HandMiddle4", ours + "Hand", theirs + "HandMiddle1", fingers),
+        ours + "UpperLeg": (theirs + "UpLeg", theirs + "Leg", "Hips", theirs + "UpLeg", [theirs + "UpLeg"]),
+        ours + "LowerLeg": (theirs + "Leg", theirs + "Foot", ours + "UpperLeg", theirs + "Leg", [theirs + "Leg"]),
+        ours + "Foot": (theirs + "Foot", theirs + "ToeBase", ours + "LowerLeg", theirs + "Foot", [theirs + "Foot"]),
+        ours + "Toes": (theirs + "ToeBase", theirs + "Toe_End", ours + "Foot", theirs + "ToeBase",
+                        [theirs + "ToeBase", theirs + "Toe_End"]),
     }
 
 
-# name: (head, tail, parent, skin radius). Skin radius is how thick the body part is around the bone.
-def bone_definitions():
-    bones = {
-        "Hips": (Vector((0, 0.015, 0.90)), Vector((0, 0.015, 1.02)), None, 0.17),
-        "Spine": (Vector((0, 0.015, 1.02)), Vector((0, 0.015, 1.20)), "Hips", 0.17),
-        "Chest": (Vector((0, 0.015, 1.20)), Vector((0, 0.025, 1.50)), "Spine", 0.20),
-        "Neck": (Vector((0, 0.025, 1.50)), Vector((0, 0.0, 1.59)), "Chest", 0.06),
-        "Head": (Vector((0, 0.0, 1.59)), Vector((0, -0.01, 1.85)), "Neck", 0.12),
-    }
-    for prefix, s in (("L_", 1.0), ("R_", -1.0)):
-        j = side_joints(s)
-        bones[prefix + "Clavicle"] = (j["clavicle"], j["shoulder"], "Chest", 0.07)
-        bones[prefix + "UpperArm"] = (j["shoulder"], j["elbow"], prefix + "Clavicle", 0.065)
-        bones[prefix + "LowerArm"] = (j["elbow"], j["wrist"], prefix + "UpperArm", 0.05)
-        bones[prefix + "Hand"] = (j["wrist"], j["knuckle"], prefix + "LowerArm", 0.06)
-        bones[prefix + "Fingers"] = (j["knuckle"], j["fingertip"], prefix + "Hand", 0.05)
-        bones[prefix + "UpperLeg"] = (j["hip"], j["knee"], "Hips", 0.10)
-        bones[prefix + "LowerLeg"] = (j["knee"], j["ankle"], prefix + "UpperLeg", 0.075)
-        bones[prefix + "Foot"] = (j["ankle"], j["toe"], prefix + "LowerLeg", 0.06)
-        bones[prefix + "Toes"] = (j["toe"], j["toetip"], prefix + "Foot", 0.05)
-    return bones
+# The game's skeleton, parents first. Per bone: the source joints it runs between, its parent, the source bone whose
+# motion it takes, and the source bones whose skin weights it takes over. The game knows these names (PlayerIkRig).
+BONES = {
+    "Hips": ("Hips", "Spine", None, "Hips", ["Hips"]),
+    "Spine": ("Spine", "Spine2", "Hips", "Spine1", ["Spine", "Spine1"]),
+    "Chest": ("Spine2", "Neck", "Spine", "Spine2", ["Spine2"]),
+    "Neck": ("Neck", "Head", "Chest", "Neck", ["Neck"]),
+    "Head": ("Head", "HeadTop_End", "Neck", "Head", ["Head", "HeadTop_End"]),
+    **side_bones("L_", "Left"),
+    **side_bones("R_", "Right"),
+}
+LOWER_BODY = {"Hips"} | {side + part for side in ("L_", "R_") for part in ("UpperLeg", "LowerLeg", "Foot", "Toes")}
+
+# name: (head, tail, parent) in armature space, from the source's joints; filled by load_skeleton.
+SKIN_BONES = {}
 
 
-SKIN_BONES = bone_definitions()
-LIMB_PREFIXES = ("L_", "R_")
+def load_skeleton(source):
+    joints = {bone.name[len(SOURCE_PREFIX):]: source.matrix_world @ bone.head_local for bone in source.data.bones}
+    SKIN_BONES.clear()
+    for name, (head, tail, parent, _, _) in BONES.items():
+        SKIN_BONES[name] = (joints[head].copy(), joints[tail].copy(), parent)
 
 
 def racket_rest_frame():
     """The racket's rest pose in the open right hand: the handle crosses the palm towards the thumb."""
-    j = side_joints(-1.0)
-    along_hand = (j["fingertip"] - j["wrist"]).normalized()
+    wrist = SKIN_BONES["R_Hand"][0]
+    knuckle, fingertip = SKIN_BONES["R_Fingers"][:2]
+    along_hand = (fingertip - wrist).normalized()
     thumb_side = Vector((0.0, -1.0, 0.0))
     racket_y = (along_hand * 0.45 + thumb_side).normalized()
     racket_z = along_hand.cross(racket_y).normalized()
     racket_x = racket_y.cross(racket_z).normalized()
-    origin = j["wrist"] + (j["knuckle"] - j["wrist"]) * 0.75
+    origin = wrist + (knuckle - wrist) * 0.75
     return origin, Matrix((racket_x, racket_y, racket_z)).transposed()
 
 
@@ -142,12 +120,12 @@ def build_armature():
     bpy.context.view_layer.objects.active = rig
     bpy.ops.object.mode_set(mode="EDIT")
 
-    for name, (head, tail, parent, _) in SKIN_BONES.items():
+    for name, (head, tail, _) in SKIN_BONES.items():
         bone = data.edit_bones.new(name)
         bone.head = head
         bone.tail = tail
         bone.use_connect = False
-    for name, (_, _, parent, _) in SKIN_BONES.items():
+    for name, (_, _, parent) in SKIN_BONES.items():
         if parent:
             data.edit_bones[name].parent = data.edit_bones[parent]
 
@@ -163,83 +141,37 @@ def build_armature():
     return rig
 
 
-def segment_distances(points, head, tail):
-    a = np.array(head, dtype=np.float64)
-    ab = np.array(tail, dtype=np.float64) - a
-    t = np.clip(((points - a) @ ab) / (ab @ ab), 0.0, 1.0)
-    return np.linalg.norm(points - (a + t[:, None] * ab), axis=1)
-
-
-def smooth_along_edges(mesh, weights, iterations):
-    """Averages each vertex's weights with its neighbours', which softens the joints between body parts."""
-    edge_count = len(mesh.data.edges)
-    edges = np.empty(edge_count * 2, dtype=np.int64)
-    mesh.data.edges.foreach_get("vertices", edges)
-    edges = edges.reshape(-1, 2)
-    neighbour_counts = np.zeros(weights.shape[0], dtype=np.float64)
-    np.add.at(neighbour_counts, edges[:, 0], 1.0)
-    np.add.at(neighbour_counts, edges[:, 1], 1.0)
-
-    for _ in range(iterations):
-        totals = np.zeros_like(weights)
-        np.add.at(totals, edges[:, 0], weights[edges[:, 1]])
-        np.add.at(totals, edges[:, 1], weights[edges[:, 0]])
-        averages = totals / np.maximum(neighbour_counts, 1.0)[:, None]
-        has_neighbours = neighbour_counts[:, None] > 0.0
-        weights = np.where(has_neighbours, weights * 0.5 + averages * 0.5, weights)
-    return weights / np.maximum(weights.sum(axis=1, keepdims=True), 1e-9)
-
-
-def skin_player(mesh, rig):
-    """
-    The scan's clothes are layered open shells, on which Blender's heat weighting often fails.
-    Instead each vertex is weighted by its distance to a bone relative to that body part's thickness.
-    """
+def skin_from_source(mesh, rig):
+    """Takes the source's skin weights over: each of our bones gets the sum of the source bones it stands for."""
+    names = list(BONES)
+    column = {SOURCE_PREFIX + source: index for index, name in enumerate(names) for source in BONES[name][4]}
+    source_column = {group.index: column.get(group.name) for group in mesh.vertex_groups}
     count = len(mesh.data.vertices)
-    points = np.empty(count * 3, dtype=np.float64)
-    mesh.data.vertices.foreach_get("co", points)
-    points = points.reshape(-1, 3)
-
-    names = list(SKIN_BONES)
     weights = np.zeros((count, len(names)), dtype=np.float64)
-    x, z = points[:, 0], points[:, 2]
+    unmapped = set()
+    for vertex in mesh.data.vertices:
+        for element in vertex.groups:
+            target = source_column[element.group]
+            if target is None:
+                if element.weight > 0.0:
+                    unmapped.add(mesh.vertex_groups[element.group].name)
+                continue
+            weights[vertex.index, target] += element.weight
+    if unmapped:
+        raise ValueError(f"source bones with skin weights but no bone of ours: {sorted(unmapped)}")
 
-    for index, name in enumerate(names):
-        head, tail, _, radius = SKIN_BONES[name]
-        distance = segment_distances(points, head, tail)
-        weight = 1.0 / np.maximum(distance / radius, 0.05) ** 5
-
-        allowed = np.ones(count, dtype=bool)
-        if name.startswith(LIMB_PREFIXES):
-            side = 1.0 if name.startswith("L_") else -1.0
-            allowed &= x * side > -0.02
-        if "Leg" in name or "Foot" in name or "Toes" in name:
-            allowed &= z < 0.97
-            allowed &= np.abs(x) < BODY_HALF_WIDTH
-        if name in ("Hips", "Spine", "Chest"):
-            # Thick bones would otherwise out-vote the thin ones and pin the hands to the rest pose.
-            allowed &= np.abs(x) < BODY_HALF_WIDTH
-        if "Arm" in name or "Hand" in name or "Fingers" in name:
-            allowed &= np.abs(x) > 0.13
-            allowed &= z > 0.85
-        if name in ("Neck", "Head"):
-            allowed &= z > 1.38
-        if name == "Hips":
-            allowed &= z > 0.62
-        weights[:, index] = weight * allowed
-
-    weights /= np.maximum(weights.sum(axis=1, keepdims=True), 1e-9)
-    weights = smooth_along_edges(mesh, weights, iterations=3)
-
+    for group in list(mesh.vertex_groups):
+        mesh.vertex_groups.remove(group)
     groups = [mesh.vertex_groups.new(name=name) for name in names]
     for vertex in range(count):
         row = weights[vertex]
         strongest = np.argsort(row)[-MAX_BONES_PER_VERTEX:]
         total = row[strongest].sum()
+        if total <= 0.0:
+            raise ValueError(f"vertex {vertex} has no skin weights")
         for index in strongest:
             if row[index] > 0.005:
                 groups[index].add([vertex], float(row[index] / total), "REPLACE")
-
     bind(mesh, rig)
 
 
@@ -265,6 +197,10 @@ def attach_racket(rig, racket, strings):
 # ---------------------------------------------------------------- Pose solving
 
 
+# Poses give a planted foot's ankle this height above the court, whatever the model's own ankle height.
+POSE_ANKLE_HEIGHT = 0.225
+
+
 class Solver:
     def __init__(self, rig):
         self.rig = rig
@@ -277,6 +213,13 @@ class Solver:
             parent = self.rest[bone.parent.name] if bone.parent else Matrix.Identity(4)
             self.local_rest[bone.name] = parent.inverted() @ bone.matrix_local
         self.length = {b.name: b.length for b in bones}
+        # Parents before children, the order a whole pose is built in.
+        depth = {}
+        for bone in bones:
+            depth[bone.name] = len(bone.parent_recursive)
+        self.order = sorted(depth, key=depth.get)
+        # Poses put a planted ankle POSE_ANKLE_HEIGHT above the court; this model's ankle stands this much higher.
+        self.ankle_lift = self.rest["L_Foot"].translation.z - POSE_ANKLE_HEIGHT
 
         racket_rest = self.rest_rot["Racket"]
         self.hand_from_racket = racket_rest.inverted() @ self.rest_rot["R_Hand"]
@@ -338,7 +281,7 @@ class Solver:
 
     def solve_legs(self, p, world, set_bone):
         for prefix, foot_key, rot_key, outward in (("L_", "foot_l", "foot_l_rot", 1.0), ("R_", "foot_r", "foot_r_rot", -1.0)):
-            ankle = to_blender(p[foot_key])
+            ankle = to_blender(p[foot_key]) + Vector((0.0, 0.0, self.ankle_lift))
             hip = self.child_head(prefix + "UpperLeg", world["Hips"])
             upper = self.length[prefix + "UpperLeg"]
             lower = self.length[prefix + "LowerLeg"]
@@ -759,12 +702,13 @@ SERVE_START = make_pose(
     foot_r_rot=SERVE_FOOT_R_ROT,
     knee_follow=SERVE_KNEE_FOLLOW,
     knee_out=SERVE_KNEE_OUT,
-    grip=(0.08, 0.28, 1.08),
-    racket=(-0.15, 0.8, 0.55),
-    face=(0.9, 0.2, 0.1),
-    hand_l=(-0.06, 0.4, 1.12),
+    # The racket out in front at the waist, its head towards the box, the left hand with the ball at its throat.
+    grip=(0.38, 0.26, 0.98),
+    racket=(-0.15, 0.96, 0.22),
+    face=(0.95, 0.15, 0.0),
+    hand_l=(0.17, 0.5, 1.06),
     two_hand=(0.0,),
-    elbow_r=(0.6, -0.6, -0.5),
+    elbow_r=(0.7, -0.3, -0.6),
     elbow_l=(-0.6, 0.2, -0.7),
 )
 # The trophy position: the tossing arm straight up, the racket up behind the head, the knees bent towards the court
@@ -972,174 +916,167 @@ def blend_pose(a, b, amount):
     return {key: a[key] * (1.0 - amount) + b[key] * amount for key in a}
 
 
-def smoothstep(x):
-    x = min(1.0, max(0.0, x))
-    return x * x * (3.0 - 2.0 * x)
+# ---------------------------------------------------------------- Motion capture
+
+# The source's clips are keyed at the glTF importer's frame rate.
+MOCAP_FPS = 24
+# Locomotion: our gait, and the source clip it comes from. Each plays in five directions; ProjectBuilder blends the
+# gaits by the speeds PlayerAnimationController.Gaits gives them: the speed each clip's planted foot goes back at, which
+# Locomotion_EachClipMovesItsPlantedFootAtItsOwnSpeed measures (a run's is a little below the body's average, printed here).
+GAITS = (("Walk", "walk"), ("Run", "run"))
+# The directions, and how far the body turns for each, degrees to the right: the source runs straight ahead, so a
+# stride to the side or back is the same stride with the whole body turned into it.
+DIRECTIONS = (("", 0.0), ("Right", 90.0), ("Left", -90.0), ("BackRight", RETREAT_TRAVEL), ("BackLeft", -RETREAT_TRAVEL))
+# How much of the turn back towards the court each bone has taken, from the hips up: the spine some, the chest most,
+# the head all of it. Bones further out turn with the one they hang from.
+COUNTER_SHARE = {"Spine": 0.45, "Chest": 0.75, "Neck": 0.85, "Head": 1.0}
 
 
-# Ankle to the ball of the foot, metres: the heel peels up about the ball.
-FOOT_LEVER = 0.22
-# Over this last share of the stance the heel peels off the ground.
-HEEL_PEEL = 0.45
+def counter_share(solver, name):
+    while name is not None and name not in COUNTER_SHARE:
+        if name in LOWER_BODY:
+            return 0.0
+        name = solver.parent[name]
+    return COUNTER_SHARE.get(name, 0.0)
 
 
-def foot_cycle(phase, front, back, stance_fraction, lift, heel, land_pitch):
+class Mocap:
     """
-    Along the travel, height and pitch (negative: toes down) of an ankle for phase in 0..1. Planted, the foot runs
-    at an even pace from front of the hip to behind it, the heel peeling up at the end as it pushes off; then it
-    swings through, the toes coming up to land.
+    Carries the source armature's clips over to our skeleton. Built on the same joints, each of our bones turns from
+    its rest pose in the world just as the source bone it stands for turns from its own, so proportions carry over
+    exactly. The right hand is the exception: it holds the racket as the standing pose does, whatever the clip's
+    empty hand is doing.
     """
-    phase %= 1.0
-    stride = front + back
-    if phase < stance_fraction:
-        u = phase / stance_fraction
-        rise = heel * smoothstep((u - (1.0 - HEEL_PEEL)) / HEEL_PEEL)
-        # Landing toes up, the foot rolls flat over the first part of the stance.
-        pitch = land_pitch * (1.0 - smoothstep(u / 0.2)) - math.degrees(math.asin(rise / FOOT_LEVER))
-        return front - stride * u, rise, pitch
-    swing = (phase - stance_fraction) / (1.0 - stance_fraction)
-    s = smoothstep(swing)
-    off = -math.degrees(math.asin(heel / FOOT_LEVER))
-    return -back + stride * s, lift * math.sin(math.pi * swing) + heel * (1.0 - s), off + (land_pitch - off) * s
+
+    def __init__(self, solver, source):
+        self.solver = solver
+        self.source = source
+        self.rest = {}
+        for name, (_, _, _, motion, _) in BONES.items():
+            bone = source.data.bones[SOURCE_PREFIX + motion]
+            self.rest[name] = (source.matrix_world @ bone.matrix_local).to_3x3().normalized()
+        standing = solver.solve(STANDING)
+        self.racket_hand = standing["R_LowerArm"].to_3x3().inverted() @ standing["R_Hand"].to_3x3()
+        self.racket_fingers = standing["R_Hand"].to_3x3().inverted() @ standing["R_Fingers"].to_3x3()
+        self.start = self.duration = 0.0
+
+    def use(self, action):
+        data = self.source.animation_data
+        data.action = action
+        if hasattr(data, "action_slot") and data.action_slot is None and len(action.slots) > 0:
+            data.action_slot = action.slots[0]
+        first, last = action.frame_range
+        self.start, self.duration = first / MOCAP_FPS, (last - first) / MOCAP_FPS
+
+    def at(self, t):
+        """Moves the source to t seconds into its clip."""
+        frame = (self.start + t) * MOCAP_FPS
+        whole = math.floor(frame)
+        bpy.context.scene.frame_set(int(whole), subframe=frame - whole)
+
+    def joint(self, name):
+        return self.source.matrix_world @ self.source.pose.bones[SOURCE_PREFIX + name].head
+
+    def pose(self, turn=0.0, shift=Vector(), legs=None):
+        """
+        Our skeleton's world transforms for the source's current frame: the hips moved by shift, the body turned turn
+        degrees to the right with the chest and head turning back towards the court, and the hips and legs taken from
+        the pose legs instead, if it is given.
+        """
+        solver = self.solver
+        body = Matrix.Rotation(math.radians(-turn), 3, "Z")
+        counter = math.copysign(min(abs(turn) * 0.95, MAX_COUNTER_TURN), turn)
+        planted = solver.solve(legs) if legs is not None else None
+        world = {}
+        for name in solver.order:
+            parent = solver.parent[name]
+            if name not in BONES:
+                world[name] = world[parent] @ solver.local_rest[name]
+                continue
+            if planted is not None and name in LOWER_BODY:
+                world[name] = planted[name]
+                continue
+            if name == "R_Hand":
+                rotation = world["R_LowerArm"].to_3x3() @ self.racket_hand
+            elif name == "R_Fingers":
+                rotation = world["R_Hand"].to_3x3() @ self.racket_fingers
+            else:
+                bone = self.source.pose.bones[SOURCE_PREFIX + BONES[name][3]]
+                turned = (self.source.matrix_world @ bone.matrix).to_3x3().normalized() @ self.rest[name].inverted()
+                back = Matrix.Rotation(math.radians(counter * counter_share(solver, name)), 3, "Z")
+                rotation = back @ body @ turned @ solver.rest_rot[name]
+            if parent is None:
+                position = body @ (self.joint("Hips") + shift)
+            else:
+                position = solver.child_head(name, world[parent])
+            world[name] = solver.world(rotation, position)
+        return world
+
+    def travel(self):
+        """The clip's average velocity across the ground, and the hips' average place once that is taken out."""
+        self.at(0.0)
+        start = self.joint("Hips")
+        self.at(self.duration)
+        velocity = (self.joint("Hips") - start) / self.duration
+        velocity.z = 0.0
+        samples = 48
+        centre = Vector()
+        for i in range(samples):
+            t = self.duration * i / samples
+            self.at(t)
+            centre += self.joint("Hips") - velocity * t
+        centre /= samples
+        centre.z = 0.0
+        return velocity, centre
+
+    def left_landing(self, velocity):
+        """When the left foot lands, seconds into the clip: where a stride cycle starts."""
+        steps = int(self.duration * 120)
+        speeds = []
+        last = None
+        for i in range(steps + 1):
+            self.at(self.duration * i / steps)
+            foot = self.joint("LeftFoot")
+            if last is not None:
+                speeds.append(((foot - last) * (steps / self.duration)).to_2d().length)
+            last = foot
+        planted = [s < 0.3 * velocity.length for s in speeds]
+        for i in range(len(planted)):
+            if planted[i] and not planted[i - 1]:
+                return self.duration * i / steps
+        return 0.0
 
 
-def leg_reach():
-    """The farthest from hip joint to ankle with the knee bent by MIN_KNEE_BEND."""
-    hip, knee, _, _ = SKIN_BONES["L_UpperLeg"]
-    upper = (knee - hip).length
-    lower = (SKIN_BONES["L_LowerLeg"][1] - knee).length
-    return math.sqrt(upper * upper + lower * lower + 2.0 * upper * lower * math.cos(math.radians(MIN_KNEE_BEND)))
-
-
-def hip_joint(prefix, pelvis_pos, pelvis_rot):
-    """Where the solver puts a hip joint for this pelvis, in armature space."""
-    hips_head = SKIN_BONES["Hips"][0]
-    joint = SKIN_BONES[prefix + "UpperLeg"][0]
-    return hips_head + to_blender(pelvis_pos) + body_rotation(*pelvis_rot) @ (joint - hips_head)
-
-
-LEGS = (("L_", "foot_l"), ("R_", "foot_r"))
-
-
-def reach_limited_hips(pose, planted):
+def author_mocap(solver, mocap, name, action, turn=0.0, in_place=True, legs=None, cycle_start=None):
     """
-    Lowers the hips just enough that each planted leg reaches its foot: a walk's hips then rise over the planted leg
-    and dip as the weight passes from one foot to the other, as a real walk's do. A swinging foot out of reach is drawn
-    in towards its hip instead, the knee folding as it leaves the ground.
+    One of the source's clips on our skeleton. In place, the travel across the ground is taken out, so the game moves
+    the player instead, and the hips are centred over the feet. A looping clip may start from cycle_start seconds in,
+    so that every gait starts its cycle on the same foot. Returns the speed the clip travelled at.
     """
-    reach = leg_reach()
-    height = pose["pelvis_pos"][2]
-    for (prefix, key), down in zip(LEGS, planted):
-        if not down:
-            continue
-        hip = hip_joint(prefix, pose["pelvis_pos"], pose["pelvis_rot"])
-        ankle = to_blender(pose[key])
-        across = (Vector((hip.x, hip.y, 0.0)) - Vector((ankle.x, ankle.y, 0.0))).length
-        if across >= reach:
-            raise ValueError(f"a planted foot {across:.2f} m from its hip across the ground is out of the leg's reach")
-        height = min(height, pose["pelvis_pos"][2] + ankle.z + math.sqrt(reach * reach - across * across) - hip.z)
-    pose["pelvis_pos"] = np.array([pose["pelvis_pos"][0], pose["pelvis_pos"][1], height])
-    for (prefix, key), down in zip(LEGS, planted):
-        hip = hip_joint(prefix, pose["pelvis_pos"], pose["pelvis_rot"])
-        offset = to_blender(pose[key]) - hip
-        if not down and offset.length > reach:
-            pose[key] = np.array(to_blender(hip + offset * (reach / offset.length)))
-    return pose
+    mocap.use(action)
+    velocity, centre = mocap.travel() if in_place else (Vector(), Vector())
+    rest_hips = solver.rest["Hips"].translation
+    offset = 0.0 if cycle_start is None else cycle_start
+    begin_action(solver.rig, name)
+    frames = max(1, int(round(mocap.duration * FPS)))
+    for frame in range(frames + 1):
+        t = (offset + mocap.duration * frame / frames) % mocap.duration if cycle_start is not None else mocap.duration * frame / frames
+        mocap.at(t)
+        shift = -(velocity * t) - centre + Vector((rest_hips.x, rest_hips.y, 0.0)) if in_place else Vector()
+        solver.apply(mocap.pose(turn, shift, legs), frame)
+    log(f"{name}: {mocap.duration:.2f} s from {action.name}, travelling {velocity.length:.2f} m/s")
+    return velocity.length
 
 
-def gait_pose(base, phase, direction, gait, roll=0.0, racket_low=0.0):
-    """A travelling cycle. The planted foot moves at exactly the player's speed, so nothing slides at runtime."""
-    speed, stance_fraction, lean = gait["speed"], gait["stance"], gait["lean"]
-    stride = speed * gait["cycle"] * stance_fraction
-    front, back = stride * gait["front"], stride * (1.0 - gait["front"])
-    pose = dict(base)
-    planted = [phase % 1.0 < stance_fraction, (phase + 0.5) % 1.0 < stance_fraction]
-
-    for key, foot_phase, side in (("foot_l", phase, -1.0), ("foot_r", phase + 0.5, 1.0)):
-        along, height, pitch = foot_cycle(foot_phase, front, back, stance_fraction, gait["lift"], gait["heel"], gait["land_pitch"])
-        pose[key] = np.array([side * gait["width"] + direction[0] * along, direction[1] * along, 0.225 + height])
-        # Feet point almost straight along a stride; a sideways shuffle keeps them a little more open.
-        pose[key + "_rot"] = np.array([pitch if abs(direction[1]) > 0.5 else 0.0, side * (5.0 if abs(direction[0]) < 0.5 else 8.0)])
-
-    # The knees swing straight ahead over the feet, in a stride and in a shuffle alike.
-    pose["knee_out"] = np.array([0.05 if abs(direction[1]) > 0.5 else 0.15])
-
-    # A run is lowest in mid-stance, as the leg takes the landing, and highest in flight.
-    mid_stance = 4.0 * math.pi * (phase - stance_fraction * 0.5)
-    # The hips turn furthest as a foot lands, its own side forward; the shoulders and arms swing against them.
-    swing = math.cos(2.0 * math.pi * phase)
-    hip_turn, arm_swing = gait["hip"], gait["arm"]
-    pose["pelvis_pos"] = np.array([direction[0] * lean * 0.004, direction[1] * lean * 0.005, -gait["crouch"] - gait["bounce"] * math.cos(mid_stance)])
-    pose["pelvis_rot"] = np.array([lean * direction[1], swing * hip_turn, roll * direction[0]])
-    reach_limited_hips(pose, planted)
-    crouch = -pose["pelvis_pos"][2]
-    pose["spine_rot"] = np.array([lean * 0.4 * direction[1] + 3.0, -swing * hip_turn * 0.7, 0.0])
-    pose["chest_rot"] = np.array([lean * 0.3 * direction[1] + 3.0, -swing * hip_turn * 0.7, 0.0])
-    pose["head_rot"] = np.array([-(lean * 0.7 * direction[1] + 4.0), 0.0, 0.0])
-
-    # The racket stays low in the right hand, swinging against the left arm: each arm forward with the opposite foot.
-    pose["grip"] = np.array([0.44, 0.2 + swing * arm_swing, 1.0 - crouch * 0.4 + racket_low])
-    pose["racket"] = np.array([0.1, 0.8, 0.3 - swing * arm_swing * 0.4])
-    pose["face"] = np.array([1.0, -0.1, 0.0])
-    pose["hand_l"] = np.array([-0.42, 0.14 - swing * arm_swing, 1.08 - crouch * 0.4 + abs(swing) * arm_swing * 0.25])
-    pose["two_hand"] = np.array([0.0])
-    pose["elbow_r"] = np.array([0.5, -0.8, -0.3])
-    pose["elbow_l"] = np.array([-0.5, -0.8, -0.3])
-    return pose
-
-
-def turned(pose, angle):
-    """
-    The same stride heading off to the side: the feet, their path and the hips turn by angle (positive to the right),
-    and the spine, chest and head turn most of the way back, up to MAX_COUNTER_TURN, so the player keeps the court in view.
-    """
-    counter = math.copysign(min(abs(angle) * 0.95, MAX_COUNTER_TURN), angle)
-    pose = dict(pose)
-    a = math.radians(angle)
-    c, s = math.cos(a), math.sin(a)
-
-    def rotate(v):
-        x, y = v[0], v[1]
-        return np.array([x * c + y * s, -x * s + y * c] + list(v[2:]))
-
-    for key in ("foot_l", "foot_r", "pelvis_pos"):
-        pose[key] = rotate(pose[key])
-    for key in ("foot_l_rot", "foot_r_rot"):
-        pose[key] = pose[key] + np.array([0.0, angle])
-    pose["pelvis_rot"] = pose["pelvis_rot"] + np.array([0.0, angle, 0.0])
-    for key, share in (("spine_rot", 0.45), ("chest_rot", 0.3), ("head_rot", 0.2)):
-        pose[key] = pose[key] - np.array([0.0, counter * share / 0.95, 0.0])
-    return pose
-
-
-def gait_heading(gait, phase, travel, turn):
-    """
-    A gait's stride heading along travel with the hips turned by turn, both degrees clockwise from straight ahead. The
-    stride runs a little across the turned hips, so that once turned it heads exactly along the travel.
-    """
-    a = math.radians(travel - turn)
-    return turned(gait_pose(STANDING, phase, (math.sin(a), math.cos(a)), gait), turn)
-
-
-def author_locomotion(solver):
-    """
-    Locomotion in three gaits, a walk, a jog and a run, each in six directions. Within a gait every direction shares the
-    speed, the cycle and the share of it a foot is on the ground, so the game can blend directions without one clip's
-    planted foot cancelling another's swinging one; the game blends the gaits by speed.
-
-    Every direction is a forward stride with the hips turned towards the travel, the chest and head turning back towards
-    the court: to the side the hips turn most of the way, in a retreat further still. Neighbouring clips then swing the
-    legs the same way and blend cleanly, where a backpedal next to a turned stride would swing them against each other
-    and cancel the step. A retreat turns one way or the other, so its two clips sit close to straight back and the
-    game picks one side rather than blend hips turned opposite ways.
-    """
-    for gait in GAITS:
-        name, cycle = gait["name"], gait["cycle"]
-        author_function(solver, name, cycle, lambda phase, g=gait: gait_heading(g, phase, 0.0, 0.0))
-        author_function(solver, name + "Right", cycle, lambda phase, g=gait: gait_heading(g, phase, 90.0, g["side_turn"]))
-        author_function(solver, name + "Left", cycle, lambda phase, g=gait: gait_heading(g, phase, -90.0, -g["side_turn"]))
-        author_function(solver, name + "BackRight", cycle, lambda phase, g=gait: gait_heading(g, phase, RETREAT_TRAVEL, RETREAT_TURN))
-        author_function(solver, name + "BackLeft", cycle, lambda phase, g=gait: gait_heading(g, phase, -RETREAT_TRAVEL, -RETREAT_TURN))
+def author_locomotion(solver, mocap, actions):
+    for gait, source in GAITS:
+        action = actions[source]
+        mocap.use(action)
+        velocity, _ = mocap.travel()
+        landing = mocap.left_landing(velocity)
+        for suffix, turn in DIRECTIONS:
+            speed = author_mocap(solver, mocap, gait + suffix, action, turn=turn, cycle_start=landing)
+        log(f"GAIT {gait}: authored at {speed:.2f} m/s, cycle starting {landing:.2f} s in")
 
     def breathing_idle(phase):
         pose = dict(STANDING)
@@ -1158,6 +1095,16 @@ def author_locomotion(solver):
 
     author_function(solver, "Idle", 3.0, breathing_idle)
     author_function(solver, "Ready", 1.2, ready_bounce)
+
+
+def author_occasions(solver, mocap, actions):
+    """The source's clips for the moments around play: the warm-up, and the end of a match."""
+    # Before the match, while the menu is up: stretches and lunges on the spot, looping.
+    author_mocap(solver, mocap, "WarmUp", actions["warm_up"], cycle_start=0.0)
+    # The winner waves to the crowd. The source waves on the move, so its legs stand still instead.
+    author_mocap(solver, mocap, "Greet", actions["greet_01"], legs=STANDING)
+    # The loser sags, then stands looking up.
+    author_mocap(solver, mocap, "Defeat", actions["defeat_02"])
 
 
 def hold(solver, name, pose, wobble=0.012):
@@ -1445,7 +1392,17 @@ def append_objects(blend_path, names):
     for obj in target.objects:
         bpy.context.scene.collection.objects.link(obj)
         objects[obj.name] = obj
+    # World matrices are only worked out by an update: until then a scaled object reads as unscaled.
+    bpy.context.view_layer.update()
     return objects
+
+
+def load_actions(blend_path):
+    """Every clip in the file, by its name there; Blender may rename them on loading, if ours took the name first."""
+    with bpy.data.libraries.load(blend_path) as (source, target):
+        names = list(source.actions)
+        target.actions = list(names)
+    return dict(zip(names, target.actions))
 
 
 def main():
@@ -1457,11 +1414,17 @@ def main():
     scene = bpy.context.scene
     scene.render.fps = FPS
 
-    player = append_objects(os.path.join(work_dir, "player_low.blend"), {"Player"})["Player"]
+    animated = os.path.join(work_dir, "player_animated.blend")
+    loaded = append_objects(animated, {"Player", "Source"})
+    player, source = loaded["Player"], loaded["Source"]
+    actions = load_actions(animated)
+    # Every clip so far is the source's, including any that came along with its armature.
+    source_clips = list(bpy.data.actions)
     racket_parts = append_objects(os.path.join(work_dir, "racket_low.blend"), {"Racket", "Strings"})
 
+    load_skeleton(source)
     rig = build_armature()
-    skin_player(player, rig)
+    skin_from_source(player, rig)
     attach_racket(rig, racket_parts["Racket"], racket_parts["Strings"])
     set_material(player, "Player", os.path.join(art_dir, "Player_BaseColor.png"))
     set_material(racket_parts["Racket"], "Racket", os.path.join(art_dir, "Racket_BaseColor.png"))
@@ -1470,10 +1433,17 @@ def main():
 
     rig.animation_data_create()
     solver = Solver(rig)
-    author_locomotion(solver)
+    mocap = Mocap(solver, source)
+    author_locomotion(solver, mocap, actions)
+    author_occasions(solver, mocap, actions)
     author_shots(solver)
     author_reactions(solver)
     report_contact_heads(solver, racket_parts["Strings"])
+
+    # The source and its clips have been carried over; they are not part of the game.
+    bpy.data.objects.remove(source)
+    for action in source_clips:
+        bpy.data.actions.remove(action)
 
     if sheet_path:
         render_contact_sheet(rig, sheet_path)
